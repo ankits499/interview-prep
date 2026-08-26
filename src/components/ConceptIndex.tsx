@@ -1,23 +1,11 @@
 import type { ConceptCard } from '../types'
 import { useConceptProgress } from '../hooks/useConceptProgress'
 import { scrollToId } from '../lib/scrollToId'
-
-function groupConcepts(concepts: ConceptCard[]) {
-  const order: string[] = []
-  const map = new Map<string, ConceptCard[]>()
-  for (const c of concepts) {
-    if (!map.has(c.group)) {
-      map.set(c.group, [])
-      order.push(c.group)
-    }
-    map.get(c.group)!.push(c)
-  }
-  return order.map((group) => ({ group, items: map.get(group)! }))
-}
+import { groupBy } from '../lib/groupBy'
 
 export function ConceptIndex({ concepts }: { concepts: ConceptCard[] }) {
   const { isReviewed } = useConceptProgress()
-  const groups = groupConcepts(concepts)
+  const groups = groupBy(concepts, (c) => c.group).map(({ key, items }) => ({ group: key, items }))
   const reviewedCount = concepts.filter((c) => isReviewed(c.id)).length
 
   return (

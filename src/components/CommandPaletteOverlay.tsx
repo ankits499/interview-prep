@@ -23,7 +23,7 @@ export function CommandPaletteOverlay() {
   return (
     <div className="fixed inset-0 z-30 flex items-start justify-center bg-black/30 px-4 pt-24" onClick={() => setOpen(false)}>
       <div onClick={(e) => e.stopPropagation()} className="w-full">
-        <SearchPalette onClose={() => setOpen(false)} />
+        <SearchPalette onClose={() => setOpen(false)} variant="palette" />
       </div>
     </div>
   )

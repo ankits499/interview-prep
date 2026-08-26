@@ -1,3 +1,5 @@
+import { groupBy } from '../lib/groupBy'
+
 export interface SubtopicMeta {
   id: string
   label: string
@@ -68,15 +70,5 @@ export function getSubtopicMeta(topicId: string, subtopicId: string): SubtopicMe
 
 /** Subtopics for a topic, grouped by category, preserving definition order. */
 export function getSubtopicsByCategory(topicId: string): { category: string; items: SubtopicMeta[] }[] {
-  const list = getSubtopicsForTopic(topicId)
-  const order: string[] = []
-  const map = new Map<string, SubtopicMeta[]>()
-  for (const s of list) {
-    if (!map.has(s.category)) {
-      map.set(s.category, [])
-      order.push(s.category)
-    }
-    map.get(s.category)!.push(s)
-  }
-  return order.map((category) => ({ category, items: map.get(category)! }))
+  return groupBy(getSubtopicsForTopic(topicId), (s) => s.category).map(({ key, items }) => ({ category: key, items }))
 }
