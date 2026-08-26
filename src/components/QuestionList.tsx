@@ -8,7 +8,7 @@ const difficultyOrder = ['Basic', 'Intermediate', 'Advanced', 'Expert']
 
 export function QuestionList({ questions }: { questions: Question[] }) {
   const { getStatus } = useProgress()
-  const [filters, setFilters] = useState<Filters>({ difficulty: 'All', seniority: 'All', sortBy: 'default' })
+  const [filters, setFilters] = useState<Filters>({ difficulty: 'All', seniority: 'All', sortBy: 'difficulty' })
 
   const filtered = useMemo(() => {
     let list = questions.filter(
