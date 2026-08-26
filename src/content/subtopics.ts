@@ -54,6 +54,86 @@ export const SUBTOPICS_BY_TOPIC: Record<string, SubtopicMeta[]> = {
     // Production
     { id: 'production', label: 'Production Java', priority: 'high', category: 'Production' },
   ],
+
+  'system-design': [
+    // Foundations
+    { id: 'sd-fundamentals', label: 'Scalability & Design Fundamentals', priority: 'high', category: 'Foundations' },
+    { id: 'sd-cap-consistency', label: 'CAP Theorem & Consistency Models', priority: 'high', category: 'Foundations' },
+    { id: 'sd-estimation', label: 'Capacity Estimation & Back-of-Envelope Math', priority: 'medium', category: 'Foundations' },
+
+    // Networking & APIs
+    { id: 'sd-api-design', label: 'API Design (REST, gRPC, GraphQL)', priority: 'high', category: 'Networking & APIs' },
+    { id: 'sd-load-balancing', label: 'Load Balancing & API Gateways', priority: 'high', category: 'Networking & APIs' },
+
+    // Data Storage
+    { id: 'sd-sql-vs-nosql', label: 'SQL vs NoSQL & Data Modeling', priority: 'high', category: 'Data Storage' },
+    { id: 'sd-indexing', label: 'Indexing & Query Performance', priority: 'medium', category: 'Data Storage' },
+    { id: 'sd-replication', label: 'Replication & Partitioning (Sharding)', priority: 'high', category: 'Data Storage' },
+    { id: 'sd-transactions', label: 'Distributed Transactions & Consensus', priority: 'medium', category: 'Data Storage' },
+
+    // Caching
+    { id: 'sd-caching', label: 'Caching Strategies & CDNs', priority: 'high', category: 'Caching' },
+
+    // Messaging & Streaming
+    { id: 'sd-messaging', label: 'Message Queues & Pub/Sub', priority: 'high', category: 'Messaging & Streaming' },
+    { id: 'sd-event-driven', label: 'Event-Driven Architecture & Streaming', priority: 'medium', category: 'Messaging & Streaming' },
+
+    // Scalability & Reliability Patterns
+    { id: 'sd-rate-limiting', label: 'Rate Limiting & Load Shedding', priority: 'medium', category: 'Scalability & Reliability' },
+    { id: 'sd-resilience-patterns', label: 'Resilience Patterns (Circuit Breaker, Bulkhead, Retry)', priority: 'high', category: 'Scalability & Reliability' },
+    { id: 'sd-fault-tolerance', label: 'Fault Tolerance & Disaster Recovery', priority: 'medium', category: 'Scalability & Reliability' },
+
+    // Architecture Patterns
+    { id: 'sd-microservices', label: 'Microservices vs Monolith', priority: 'high', category: 'Architecture Patterns' },
+    { id: 'sd-service-communication', label: 'Service-to-Service Communication Patterns', priority: 'medium', category: 'Architecture Patterns' },
+
+    // Observability & Security
+    { id: 'sd-observability', label: 'Monitoring, Logging & Distributed Tracing', priority: 'medium', category: 'Observability & Security' },
+    { id: 'sd-security', label: 'Authentication, Authorization & Security', priority: 'medium', category: 'Observability & Security' },
+
+    // Case Studies
+    { id: 'sd-case-studies', label: 'Common Design Problems (URL Shortener, Feed, Chat, etc.)', priority: 'high', category: 'Case Studies' },
+  ],
+
+  'spring-boot': [
+    // Core Spring
+    { id: 'sb-ioc-di', label: 'IoC Container & Dependency Injection', priority: 'high', category: 'Core Spring' },
+    { id: 'sb-bean-lifecycle', label: 'Bean Lifecycle & Scopes', priority: 'high', category: 'Core Spring' },
+    { id: 'sb-aop', label: 'Aspect-Oriented Programming (AOP)', priority: 'medium', category: 'Core Spring' },
+
+    // Spring Boot Essentials
+    { id: 'sb-autoconfiguration', label: 'Auto-Configuration & Starters', priority: 'high', category: 'Spring Boot Essentials' },
+    { id: 'sb-properties-profiles', label: 'Configuration Properties & Profiles', priority: 'medium', category: 'Spring Boot Essentials' },
+    { id: 'sb-actuator', label: 'Spring Boot Actuator & Observability', priority: 'medium', category: 'Spring Boot Essentials' },
+
+    // Web Layer
+    { id: 'sb-mvc', label: 'Spring MVC & REST Controllers', priority: 'high', category: 'Web Layer' },
+    { id: 'sb-validation-exceptions', label: 'Validation & Exception Handling', priority: 'high', category: 'Web Layer' },
+    { id: 'sb-webflux', label: 'Reactive Programming with WebFlux', priority: 'medium', category: 'Web Layer' },
+
+    // Data Access
+    { id: 'sb-data-jpa', label: 'Spring Data JPA & Repositories', priority: 'high', category: 'Data Access' },
+    { id: 'sb-transactions', label: 'Transaction Management', priority: 'high', category: 'Data Access' },
+    { id: 'sb-jpa-performance', label: 'JPA Performance & Pitfalls (N+1, Lazy Loading)', priority: 'high', category: 'Data Access' },
+
+    // Security
+    { id: 'sb-security-core', label: 'Spring Security Fundamentals', priority: 'high', category: 'Security' },
+    { id: 'sb-oauth-jwt', label: 'OAuth2 & JWT', priority: 'medium', category: 'Security' },
+
+    // Testing
+    { id: 'sb-testing', label: 'Testing Spring Boot Applications', priority: 'medium', category: 'Testing' },
+
+    // Microservices & Cloud
+    { id: 'sb-spring-cloud', label: 'Spring Cloud (Config, Discovery, Gateway)', priority: 'medium', category: 'Microservices & Cloud' },
+    { id: 'sb-resilience', label: 'Resilience4j & Circuit Breakers', priority: 'medium', category: 'Microservices & Cloud' },
+
+    // Messaging & Async
+    { id: 'sb-async-scheduling', label: 'Async & Scheduling in Spring', priority: 'medium', category: 'Messaging & Async' },
+    { id: 'sb-messaging', label: 'Messaging Integration (Kafka, RabbitMQ)', priority: 'low', category: 'Messaging & Async' },
+
+    // Production
+    { id: 'sb-production', label: 'Production Spring Boot (Deployment, Monitoring, Tuning)', priority: 'medium', category: 'Production' },
+  ],
 }
 
 export function getSubtopicsForTopic(topicId: string): SubtopicMeta[] {

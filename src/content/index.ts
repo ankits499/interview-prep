@@ -1,17 +1,27 @@
 import type { ConceptSection, Question, TopicMeta } from '../types'
 import { javaConcepts } from './concepts/java'
+import { springBootConcepts } from './concepts/spring-boot'
+import { systemDesignConcepts } from './concepts/system-design'
 import { javaQuestions } from './questions/java'
+import { springBootQuestions } from './questions/spring-boot'
+import { systemDesignQuestions } from './questions/system-design'
 
 const TOPIC_INFO: TopicMeta[] = [
   { id: 'java', label: 'Java', description: 'JVM internals, concurrency, collections, streams.' },
+  { id: 'system-design', label: 'System Design', description: 'Scalability, distributed systems, data storage, caching, and architecture patterns.' },
+  { id: 'spring-boot', label: 'Spring Boot', description: 'IoC/DI, Spring MVC, Spring Data JPA, Spring Security, and production Spring Boot.' },
 ]
 
 const CONCEPTS_BY_TOPIC: Record<string, ConceptSection[]> = {
   java: javaConcepts,
+  'system-design': systemDesignConcepts,
+  'spring-boot': springBootConcepts,
 }
 
 const QUESTIONS_BY_TOPIC: Record<string, Question[]> = {
   java: javaQuestions,
+  'system-design': systemDesignQuestions,
+  'spring-boot': springBootQuestions,
 }
 
 export const ALL_QUESTIONS: Question[] = Object.values(QUESTIONS_BY_TOPIC).flat()

@@ -1069,6 +1069,306 @@ const java8Concepts: ConceptCard[] = [
 },
 ]
 
+const concurrencyConcepts: ConceptCard[] = [
+  // ── Foundations ──────────────────────────────────────────────
+  {
+    id: 'thread-basics',
+    title: 'Thread Creation & Lifecycle',
+    group: 'Foundations',
+    definition: 'A thread is a lightweight execution context within a process — create one by extending Thread or passing a Runnable to `new Thread()`, then call start() (not run() directly) to begin execution.',
+    example: {
+      code: { language: 'java', code: `Thread t = new Thread(() -> System.out.println("runs concurrently"));\nt.start();  // spawns a new thread\n// t.run() directly would block, not spawn` },
+      note: 'Calling start() schedules the thread on the scheduler; calling run() just executes synchronously in the current thread.',
+    },
+    whyItMatters: [
+      'A common mistake to call run() thinking it spawns a thread',
+      'Thread.start() is not idempotent — calling it twice throws IllegalThreadStateException',
+    ],
+    remember: ['start() spawns; run() is just a method', 'A thread has states: new, runnable, running, blocked, terminated'],
+    readMinutes: 2,
+    related: ['thread-safety-by-design'],
+  },
+  {
+    id: 'synchronized-keyword',
+    title: 'Synchronized & Intrinsic Locks',
+    group: 'Foundations',
+    definition: 'synchronized marks a block or method as guarded by a lock — on a method, it locks the object (this); on a block, it locks a specified object. Only one thread can hold a given object\'s lock at a time.',
+    example: {
+      code: { language: 'java', code: `class Counter {\n    private int count = 0;\n    synchronized void increment() { count++; }  // locks this.Counter instance\n}\n\nsynchronized (lock) {  // block-level locking\n    // only one thread at a time\n}` },
+    },
+    whyItMatters: [
+      'synchronized protects against race conditions by serializing access to shared mutable state',
+      'Every Java object has an intrinsic monitor — synchronized uses that, no explicit Lock object needed',
+    ],
+    remember: ['Lock is per-object, not per-variable or per-thread', 'Recursive entry is allowed — a thread can re-acquire a lock it already holds'],
+    interviewAngle: { q: 'If two threads call synchronized methods on different instances of the same class, do they block each other?', a: 'No — each instance has its own lock. Only synchronized (this) for instance methods; synchronized static methods lock the class object, not instances.' },
+    readMinutes: 2,
+    related: ['intrinsic-monitor', 'visibility-guarantees'],
+  },
+  {
+    id: 'intrinsic-monitor',
+    title: 'Object as Monitor',
+    group: 'Foundations',
+    definition: 'Every Java object is a monitor — it holds an intrinsic lock and can be used as a coordination point for wait/notify, even if it\'s just `new Object()`.',
+    example: {
+      code: { language: 'java', code: `Object lock = new Object();\nsynchronized (lock) { lock.wait(); }    // releases lock, waits for notification\nsynchronized (lock) { lock.notify(); }  // wakes one waiting thread` },
+    },
+    remember: ['wait/notify are on Object, not Thread, because the synchronization point is the monitor, not the thread', 'wait() can only be called from within a synchronized block; same for notify()'],
+    readMinutes: 1,
+    related: ['synchronized-keyword', 'wait-notify'],
+  },
+
+  // ── Visibility & Memory Order ─────────────────────────────────
+  {
+    id: 'visibility-guarantees',
+    title: 'Visibility & Happens-Before',
+    group: 'Visibility & Memory Order',
+    definition: 'Without synchronization, one thread\'s write to a variable may not be visible to another thread for an arbitrarily long time. synchronized and volatile create visibility guarantees via happens-before relations.',
+    whyItMatters: [
+      'Compiler and CPU optimizations can reorder operations, cache results in registers, or delay flushing to shared memory',
+      'A thread may see stale cached values indefinitely without explicit synchronization',
+    ],
+    remember: ['synchronized/volatile create visibility guarantees that plain reads/writes do not', 'Race condition ≠ visibility issue — even single-threaded access to a shared variable can have visibility problems in a multi-threaded system'],
+    interviewAngle: { q: 'A field is written by one thread and read by another, both unsynchronized. Is the reader guaranteed to see the write?', a: 'No — the write may sit in a cache or register indefinitely. volatile or synchronized on both sides are needed to guarantee visibility.' },
+    readMinutes: 2,
+    related: ['volatile-keyword', 'memory-model'],
+  },
+  {
+    id: 'volatile-keyword',
+    title: 'volatile Modifier',
+    group: 'Visibility & Memory Order',
+    definition: 'Marks a field as requiring visibility guarantees: every read must see the most recent write, and writes are visible to all subsequent reads, even without synchronization.',
+    example: {
+      code: { language: 'java', code: `class Flag {\n    private volatile boolean running = true;\n    void stop() { running = false; }          // visible to reader immediately\n    void work() { while (running) { ... } }   // always sees latest value\n}` },
+    },
+    whyItMatters: [
+      'Allows coordination between threads without the throughput cost of locking',
+      'Only guarantees visibility, not atomicity — volatile boolean running = !running is still racy',
+    ],
+    remember: ['volatile ≠ atomic — it guarantees visibility, not atomic operations', 'Never use volatile as a substitute for synchronization when you need to protect compound operations'],
+    readMinutes: 1,
+    related: ['visibility-guarantees', 'atomic-operations'],
+  },
+
+  // ── Race Conditions & Deadlock ─────────────────────────────────
+  {
+    id: 'race-condition',
+    title: 'Race Condition',
+    group: 'Race Conditions & Deadlock',
+    definition: 'Two or more threads access shared mutable state concurrently, at least one writes, and the order of access is not synchronized — the result depends on the timing of thread execution.',
+    example: {
+      code: { language: 'java', code: `int balance = 100;\n// Thread A: balance += 50\n// Thread B: balance -= 30\n// Unsynchronized: final value might be 70, 100, or 120 depending on interleaving` },
+      note: 'Even a single operation like += is multiple CPU instructions (load, increment, store) — a race between threads can interleave them.',
+    },
+    remember: ['A race condition is a bug in the code, not necessarily a crash or exception', 'Tests may pass despite a race — it only manifests when scheduling aligns just right'],
+    interviewAngle: { q: 'A field is protected by synchronized methods, but a race still surfaces. What\'s the likely cause?', a: 'The race is across multiple fields or multiple operations — e.g., check-then-act (if (balance >= amount) then balance -= amount) where the check and withdrawal are separate, unsynchronized steps.' },
+    readMinutes: 2,
+    related: ['synchronized-keyword', 'check-then-act'],
+  },
+  {
+    id: 'check-then-act',
+    title: 'Check-Then-Act Race Window',
+    group: 'Race Conditions & Deadlock',
+    definition: 'A compound operation (check a condition, then take action based on it) where the state can change between the check and the act, even if each individual operation is synchronized.',
+    example: {
+      code: { language: 'java', code: `// WRONG: race between check and withdrawal\nif (balance >= amount) {        // Thread A checks: true\n    balance -= amount;          // Thread B withdraws in between, balance < amount now\n                                // Thread A proceeds anyway, overdraft\n}\n\n// Correct: atomic compound operation\nsynchronized void withdraw(int amount) {\n    if (balance >= amount) balance -= amount;\n}` },
+    },
+    remember: ['Synchronizing individual operations is not enough if the logic spans multiple steps', 'The synchronized block must cover the entire compound operation, not just pieces of it'],
+    readMinutes: 1,
+    related: ['race-condition'],
+  },
+  {
+    id: 'deadlock',
+    title: 'Deadlock',
+    group: 'Race Conditions & Deadlock',
+    definition: 'Two or more threads each hold a lock and wait for another\'s lock, forming a circular dependency — all waiting threads are blocked indefinitely, making no progress.',
+    diagram: `flowchart LR
+    A[Thread A] -->|holds| L1[Lock 1]
+    A -->|waits for| L2[Lock 2]
+    B[Thread B] -->|holds| L2
+    B -->|waits for| L1`,
+    whyItMatters: [
+      'Deadlock is impossible to fully prevent without discipline, since each thread acting correctly in isolation doesn\'t prevent circular dependencies',
+      'Hard to debug — the system appears frozen with no exception thrown',
+    ],
+    remember: ['Always acquire multiple locks in the same order across all threads — lock ordering prevents circular waits', 'Timeouts (tryLock with a duration) can break deadlock if the wait exceeds the timeout'],
+    readMinutes: 2,
+    related: ['lock-ordering'],
+  },
+  {
+    id: 'lock-ordering',
+    title: 'Lock Ordering',
+    group: 'Race Conditions & Deadlock',
+    definition: 'If code must acquire multiple locks, always do so in a consistent global order across every part of the codebase — prevents circular wait chains and deadlock.',
+    example: {
+      code: { language: 'java', code: `// Consistent order: always lock A before B\nObject lockA = ...;\nObject lockB = ...;\n\nsynchronized (lockA) {       // first lock\n    synchronized (lockB) {   // then lock\n        // safe from deadlock (as long as every other call also respects this order)\n    }\n}` },
+    },
+    remember: ['Document the lock order — it\'s a contract any code acquiring the same locks must honor', 'Violating the order in even one code path can deadlock the entire system'],
+    readMinutes: 1,
+    related: ['deadlock'],
+  },
+
+  // ── Coordination Primitives ────────────────────────────────────
+  {
+    id: 'wait-notify',
+    title: 'wait() and notify()',
+    group: 'Coordination Primitives',
+    definition: 'wait() releases a held lock and suspends until another thread calls notify() on the same monitor; notify() wakes one waiting thread (or notifyAll() wakes all).',
+    example: {
+      code: { language: 'java', code: `Object lock = new Object();\n\n// Producer\nsynchronized (lock) {\n    item = produce();\n    lock.notifyAll();  // wake consumers\n}\n\n// Consumer\nsynchronized (lock) {\n    while (item == null) lock.wait();  // release lock, wait\n    consume(item);\n}` },
+      note: 'Always check the condition in a while loop, not if — spurious wakeups can happen.',
+    },
+    whyItMatters: ['Enables efficient producer/consumer patterns without spinning/polling', 'notify() is unpredictable (wakes an arbitrary thread), so notifyAll() is safer despite the cost'],
+    remember: ['wait() must be called from within a synchronized block', 'Use while (condition) not if — condition may change before your thread wakes, or spurious wakeup may occur'],
+    readMinutes: 2,
+    related: ['spurious-wakeup', 'intrinsic-monitor'],
+  },
+  {
+    id: 'spurious-wakeup',
+    title: 'Spurious Wakeup',
+    group: 'Coordination Primitives',
+    definition: 'A thread can wake from wait() without anyone calling notify() — rare but legal per the spec. Calling wait() in a while loop re-checks the condition and re-waits if false.',
+    remember: ['Never use if (condition) wait(); always while (condition) wait()', 'Spurious wakeups are a correctness requirement, not a bug — code must handle them'],
+    readMinutes: 1,
+    related: ['wait-notify'],
+  },
+  {
+    id: 'notify-vs-notifyall',
+    title: 'notify() vs notifyAll()',
+    group: 'Coordination Primitives',
+    definition: 'notify() wakes one arbitrary waiting thread; notifyAll() wakes all. Use notifyAll() unless you\'re certain exactly one waiter needs waking.',
+    whyItMatters: [
+      'notify() can lead to lost notifications if the wrong thread wakes (e.g., a thread waiting on a different condition)',
+      'notifyAll() is safer but has a higher cost if many threads are waiting',
+    ],
+    remember: ['Default to notifyAll()', 'notify() only makes sense if all waiters will perform the same action on waking'],
+    readMinutes: 1,
+    related: ['wait-notify'],
+  },
+
+  // ── Atomics & Concurrent Primitives ────────────────────────────
+  {
+    id: 'atomic-operations',
+    title: 'Atomic Operations (AtomicInteger, etc.)',
+    group: 'Atomics & Concurrent Primitives',
+    definition: 'java.util.concurrent.atomic classes provide thread-safe, lock-free operations like compareAndSet (CAS) — faster than synchronized for simple counters or flags.',
+    example: {
+      code: { language: 'java', code: `AtomicInteger counter = new AtomicInteger(0);\ncounter.incrementAndGet();   // atomic, no lock\nboolean swapped = counter.compareAndSet(5, 10);  // CAS: set to 10 only if currently 5` },
+    },
+    whyItMatters: [
+      'CAS (compare-and-swap) is faster than locking for uncontended updates — backed by CPU instruction support',
+      'Useful for counters, flags, simple state transitions where locking would be overkill',
+    ],
+    remember: ['No more efficient than synchronized for heavy contention — both spin/retry under load', 'Atomic ≠ immutable — the value can still change after you read it'],
+    readMinutes: 2,
+    related: ['volatile-keyword', 'compare-and-swap'],
+  },
+  {
+    id: 'compare-and-swap',
+    title: 'Compare-And-Swap (CAS)',
+    group: 'Atomics & Concurrent Primitives',
+    definition: 'An atomic CPU instruction that compares a variable\'s current value to an expected value and only swaps it if they match — the basis of lock-free programming.',
+    example: {
+      code: { language: 'java', code: `// Atomically set value only if currently == expected\nboolean success = atomicRef.compareAndSet(expected, newValue);` },
+    },
+    remember: ['CAS is atomic at the hardware level, not requiring a software lock', 'Retry loops using CAS can handle contention by spinning rather than blocking, which is fast for uncontended updates but expensive under heavy load'],
+    readMinutes: 1,
+    related: ['atomic-operations'],
+  },
+
+  // ── Thread Safety Design ──────────────────────────────────────
+  {
+    id: 'thread-safety-by-design',
+    title: 'Thread Safety by Design',
+    group: 'Thread Safety Design',
+    definition: 'Design thread-safe classes from the start: document concurrency policy, make mutable state explicit, guard it consistently, and prefer immutability or confinement where possible.',
+    whyItMatters: [
+      'Thread-safety bolted on later is harder to verify and more bug-prone than designing for it',
+      'Clear concurrency documentation prevents misuse by callers who assume thread-safety without it',
+    ],
+    remember: [
+      'Immutability is the simplest thread-safety strategy — if there is no shared mutable state, there is no race condition',
+      'Thread confinement: if each thread owns its own copy of state (no sharing), no synchronization is needed',
+    ],
+    readMinutes: 2,
+    related: ['immutability-for-concurrency', 'thread-confinement'],
+  },
+  {
+    id: 'immutability-for-concurrency',
+    title: 'Immutability',
+    group: 'Thread Safety Design',
+    definition: 'An immutable object cannot change after construction — it is thread-safe by definition, requiring no synchronization to share across threads.',
+    example: {
+      code: { language: 'java', code: `final class Point {\n    private final int x;\n    private final int y;\n    Point(int x, int y) { this.x = x; this.y = y; }  // no setters\n}\n// Point is thread-safe: no thread can modify it after construction` },
+    },
+    whyItMatters: [
+      'The simplest and most efficient thread-safety guarantee — zero synchronization overhead',
+      'Enables fearless sharing of objects across threads and in collections',
+    ],
+    remember: [
+      'A final field holding a reference to a mutable object (final List list) is not fully immutable — the list can be mutated through the reference',
+      'Immutability + confinement is a powerful combination: immutable objects can be freely shared; confined mutable state needs synchronization only within its owner thread',
+    ],
+    readMinutes: 2,
+    related: ['thread-confinement', 'thread-safety-by-design'],
+  },
+  {
+    id: 'thread-confinement',
+    title: 'Thread Confinement',
+    group: 'Thread Safety Design',
+    definition: 'Mutable state owned by a single thread, never shared or accessed by others — requires no synchronization, and the owning thread can do whatever it wants with the state.',
+    example: {
+      code: { language: 'java', code: `// Thread confinement via stack-local variables\nvoid process() {\n    List<Item> batch = new ArrayList<>();  // confined to this method/thread\n    for (...) batch.add(...);              // no race possible\n}` },
+    },
+    remember: ['Confinement is enforced by design/discipline, not by the language — a confined object shared by mistake is racy', 'Stack-local variables are automatically confined; heap-allocated objects require careful passing rules to remain confined'],
+    readMinutes: 1,
+    related: ['thread-safety-by-design', 'threadlocal'],
+  },
+  {
+    id: 'threadlocal',
+    title: 'ThreadLocal',
+    group: 'Thread Safety Design',
+    definition: 'A container that holds a separate value per thread — each thread sees its own, independent instance, eliminating the need to share or synchronize.',
+    example: {
+      code: { language: 'java', code: `ThreadLocal<SimpleDateFormat> dateFormat = ThreadLocal.withInitial(\n    () -> new SimpleDateFormat("yyyy-MM-dd")\n);\n// Each thread calling dateFormat.get() gets its own SimpleDateFormat instance` },
+    },
+    whyItMatters: [
+      'Solves the problem of thread-unsafe objects (like SimpleDateFormat) that must be used by many threads',
+      'Often cheaper than synchronization or per-thread object creation',
+    ],
+    remember: ['ThreadLocal creates a separate instance per thread, but remember to remove() after the thread dies to prevent memory leaks', 'ThreadLocal is not a replacement for proper synchronization of shared state — it only works when true sharing is not needed'],
+    readMinutes: 2,
+    related: ['thread-confinement'],
+  },
+
+  // ── Advanced Patterns ─────────────────────────────────────────
+  {
+    id: 'thread-interruption',
+    title: 'Thread Interruption',
+    group: 'Advanced Patterns',
+    definition: 'A thread can request another thread to stop by calling interrupt() — the interrupted thread checks isInterrupted() or catches InterruptedException and decides whether to comply.',
+    example: {
+      code: { language: 'java', code: `Thread t = new Thread(() -> {\n    try {\n        while (!Thread.currentThread().isInterrupted()) {\n            doWork();\n        }\n    } catch (InterruptedException e) {\n        Thread.currentThread().interrupt();\n    }\n});\nt.start();\nt.interrupt();` },
+    },
+    whyItMatters: [
+      'Allows graceful shutdown — the thread being interrupted has a chance to clean up',
+      'Catching InterruptedException clears the interrupted flag, so always restore it unless you intend to suppress the interrupt',
+    ],
+    remember: ['Thread.stop() is deprecated and dangerous — interruption is the correct cooperative mechanism', 'Catching InterruptedException should generally re-set the flag by calling interrupt() again, or propagate it'],
+    readMinutes: 2,
+    related: ['thread-basics'],
+  },
+  {
+    id: 'memory-model',
+    title: 'Java Memory Model (Brief)',
+    group: 'Advanced Patterns',
+    definition: 'The JMM defines how threads interact with memory — synchronized and volatile enforce ordering guarantees, ensuring one thread\'s writes become visible to others predictably.',
+    remember: ['The JMM is the contract between the language and the CPU — without it, optimizations could break correctness', 'Key guarantee: actions within a lock are visible to the next thread acquiring that same lock (lock-before-unlock happens-before)'],
+    readMinutes: 1,
+    related: ['visibility-guarantees', 'volatile-keyword'],
+  },
+]
+
 const collectionsConcepts: ConceptCard[] = [
 // ── List Implementations ────────────────────────────────────
 {
@@ -1791,6 +2091,1852 @@ const genericsConcepts: ConceptCard[] = [
 },
 ]
 
+const jmmConcepts: ConceptCard[] = [
+// Group: Foundations
+  {
+    id: 'jmm-why-exists',
+    title: 'Why the JMM Exists',
+    group: 'Foundations',
+    definition: 'Compilers, JITs, and CPUs are free to reorder and cache instructions as long as a single thread cannot observe the reordering — the JMM is what constrains that freedom once a second thread is watching.',
+    whyItMatters: [
+      'Without it, "correct" single-threaded code gives no guarantee another thread ever sees your writes, or sees them in the order you wrote them',
+      'It defines the minimum contract a JVM implementation must honor across every architecture (x86, ARM), which is why some races that "work" on your laptop fail in production',
+    ],
+    remember: ['The model is about visibility and ordering across threads, not about making operations atomic'],
+    readMinutes: 2,
+  },
+
+  // Group: Happens-Before
+  {
+    id: 'happens-before-formal',
+    title: 'Happens-Before Is Not About Time',
+    group: 'Happens-Before',
+    definition: 'Happens-before is a partial ordering the JMM guarantees between specific actions — if A happens-before B, A\'s effects are visible to B, regardless of whether A finished executing before B started on the clock.',
+    whyItMatters: [
+      'Two actions can happen-before each other without any real-time ordering guarantee at all — happens-before is purely about what the JMM promises is visible',
+      'If no happens-before edge connects two accesses to the same variable from different threads, that\'s a data race, and the JVM is free to produce any result',
+    ],
+    remember: ['"Happens-before" is a legal/spec term, not a scheduling guarantee — don\'t confuse it with "happens earlier"'],
+    interviewAngle: { q: 'Does happens-before guarantee thread A\'s action actually executes before thread B\'s?', a: 'No — it guarantees visibility of effects if an edge exists, nothing about wall-clock execution order.' },
+    readMinutes: 2,
+  },
+  {
+    id: 'happens-before-rules',
+    title: 'The Happens-Before Rules',
+    group: 'Happens-Before',
+    definition: 'A small, closed set of rules generates every happens-before edge in the JMM: program order within a thread, monitor unlock before a later lock on the same monitor, a volatile write before a later volatile read of the same field, and a thread start/termination before the spawned/joining thread\'s actions — all composed transitively.',
+    whyItMatters: [
+      'Transitivity is what makes real programs work: if A happens-before B and B happens-before C, A happens-before C, even across three different threads',
+      'Interviewers use this list to probe whether you actually know the mechanism behind synchronized/volatile/Thread.join, not just their surface behavior',
+    ],
+    remember: [
+      'Program order only holds within a single thread — it says nothing about how another thread observes those actions',
+      'Thread.start() happens-before anything the new thread does; the last action in a thread happens-before another thread\'s successful join() on it',
+    ],
+    diagram: 'flowchart LR\n  a[Thread A writes field] --> b[Thread A writes volatile flag]\n  b --> c[Thread B reads volatile flag]\n  c --> d[Thread B reads field]',
+    readMinutes: 3,
+    related: ['happens-before-formal', 'volatile-memory-barrier'],
+  },
+
+  // Group: Volatile Semantics
+  {
+    id: 'volatile-visibility-not-atomicity',
+    title: 'Volatile: Visibility, Not Atomicity',
+    group: 'Volatile Semantics',
+    definition: 'volatile guarantees every read sees the most recent write and establishes a happens-before edge, but it does nothing to make compound operations like increment-and-store a single atomic step.',
+    whyItMatters: [
+      'A volatile int counter under concurrent counter++ still loses updates — the read, increment, and write are three separate steps that can interleave',
+      'This is the single most common volatile misuse in interview scenarios and in real code review',
+    ],
+    remember: ['Use volatile for single-writer or flag/status fields; use AtomicInteger/AtomicLong or synchronized for read-modify-write'],
+    readMinutes: 2,
+    related: ['happens-before-rules'],
+  },
+  {
+    id: 'volatile-memory-barrier',
+    title: 'Volatile as a Reordering Barrier',
+    group: 'Volatile Semantics',
+    definition: 'A volatile write acts as a store barrier that prevents the JIT/CPU from reordering any earlier write past it, and a volatile read acts as a load barrier that prevents any later read from being reordered before it.',
+    whyItMatters: [
+      'This is exactly what makes a volatile flag work as a publish signal — all plain writes before the volatile write are guaranteed visible to any thread that observes the volatile write',
+      'It\'s the mechanism, not folklore, behind why "write data, then write volatile done = true" is safe but "write volatile done = true, then write data" is not',
+    ],
+    remember: ['Ordering constraints only apply relative to that specific volatile field — it is not a global fence like a full synchronized block'],
+    readMinutes: 2,
+    related: ['happens-before-rules'],
+  },
+  {
+    id: 'long-double-tearing',
+    title: 'Word Tearing on long/double',
+    group: 'Volatile Semantics',
+    definition: 'On a 32-bit JVM (and historically per-spec, before JLS clarified 64-bit atomicity for non-volatile fields), a non-volatile long or double write could be executed as two separate 32-bit writes, letting another thread observe a torn value made of half the old bits and half the new.',
+    whyItMatters: [
+      'Marking a shared long/double volatile forces a single atomic 64-bit write, eliminating tearing regardless of platform',
+      'Modern 64-bit JVMs on common hardware happen not to tear in practice, but relying on that is relying on an implementation detail the spec doesn\'t promise for non-volatile fields',
+    ],
+    remember: ['Only long and double are ever at risk — every other primitive is guaranteed atomic on both read and write even without volatile'],
+    readMinutes: 2,
+  },
+
+  // Group: Final Field Semantics
+  {
+    id: 'final-field-safe-publication',
+    title: 'Final Fields and Safe Publication',
+    group: 'Final Field Semantics',
+    definition: 'The JMM guarantees that once a constructor finishes, any thread that obtains a reference to the object will see the correctly-initialized values of its final fields, with no synchronization required.',
+    whyItMatters: [
+      'This is what makes immutable objects safely publishable across threads for free — no volatile, no synchronized, no locks, just the final keyword',
+      'The guarantee breaks completely if the constructor lets this escape before finishing (e.g. registering the object with a listener, or starting a thread from the constructor) — a reader could then see a partially-constructed object',
+    ],
+    remember: ['The guarantee is specifically about final fields — plain fields on an otherwise-immutable-looking object get no such guarantee without an additional happens-before edge'],
+    interviewAngle: { q: 'Why can this "leak" from a constructor break the final-field guarantee?', a: 'Another thread can observe the object via the leaked reference before the constructor — and therefore the final field initialization — has completed.' },
+    readMinutes: 2,
+  },
+
+  // Group: Broken Idioms
+  {
+    id: 'double-checked-locking-broken',
+    title: 'Double-Checked Locking, Pre-Java-5',
+    group: 'Broken Idioms',
+    definition: 'The classic "check null, lock, check null again, assign" singleton idiom was broken before Java 5 because the compiler/CPU could reorder the constructor\'s internal writes to happen after the reference assignment, letting a second thread see a non-null but partially-constructed object.',
+    whyItMatters: [
+      'It\'s the textbook example of why "it looks correct and even usually works" is not the same as "it is correct" under the JMM — reordering bugs are timing-dependent and can pass thousands of test runs',
+      'Understanding this is really understanding that "assign the reference" and "finish constructing the object" are two separate, independently-reorderable events without a happens-before edge between them',
+    ],
+    remember: ['The bug requires no exotic hardware — it was a real, JLS-sanctioned reordering, not just a theoretical race'],
+    readMinutes: 2,
+    related: ['double-checked-locking-fixed'],
+  },
+  {
+    id: 'double-checked-locking-fixed',
+    title: 'Double-Checked Locking, Fixed',
+    group: 'Broken Idioms',
+    definition: 'Declaring the singleton field volatile (Java 5+) reinstates a store barrier around the reference assignment, so all of the constructor\'s writes happen-before the reference becomes visible to any other thread.',
+    whyItMatters: [
+      'It\'s the minimal fix — one keyword — once you understand the actual mechanism (volatile write ordering), rather than a vague "add more synchronization"',
+      'A common wrong answer under pressure is wrapping everything in synchronized instead, which fixes correctness but throws away the whole point of the double-checked pattern (avoiding lock contention on the fast path)',
+    ],
+    remember: ['The initialization-on-demand holder idiom (a static nested class) sidesteps this entirely by relying on class-loading guarantees instead of double-checked locking'],
+    readMinutes: 2,
+  },
+
+  // Group: JMM in java.util.concurrent
+  {
+    id: 'jmm-role-in-juc',
+    title: 'JMM as the Foundation of java.util.concurrent',
+    group: 'JMM in Practice',
+    definition: 'Every higher-level concurrency utility — ConcurrentHashMap, BlockingQueue, CountDownLatch, ExecutorService — is correct only because its internals establish explicit happens-before edges (via volatile fields or CAS) that the JMM then propagates to your code.',
+    whyItMatters: [
+      'This is why you get correctness guarantees "for free" from these classes without writing a single synchronized block yourself — the library authors did the happens-before reasoning once',
+      'It explains a common surprise: a put() into a ConcurrentHashMap on thread A happens-before a get() that retrieves it on thread B, without either thread using a lock the caller can see',
+    ],
+    remember: ['Task submission to an ExecutorService happens-before the task starts running, and the task\'s completion happens-before a caller\'s Future.get() returns'],
+    readMinutes: 2,
+    related: ['cas-atomic-visibility'],
+  },
+  {
+    id: 'cas-atomic-visibility',
+    title: 'CAS and Atomic Classes Carry Volatile Semantics',
+    group: 'JMM in Practice',
+    definition: 'AtomicInteger, AtomicReference, and the rest wrap a volatile-backed value and use compare-and-swap, so every successful CAS gives you both the atomicity a plain volatile lacks and the same happens-before visibility a volatile write gives.',
+    whyItMatters: [
+      'This is why AtomicInteger.incrementAndGet() is safe under contention where a volatile int counter++ is not — it fixes the exact gap called out by the visibility-vs-atomicity distinction',
+      'The underlying value field is volatile, so even a plain get() on an Atomic type gets the same read-the-latest-write guarantee as reading a volatile field directly',
+    ],
+    remember: ['CAS failure (a lost race) doesn\'t retry itself — java.util.concurrent.atomic classes loop internally until the CAS succeeds'],
+    readMinutes: 2,
+  },
+]
+
+const locksConcepts: ConceptCard[] = [
+// --- Explicit Locks ---
+  {
+    id: 'reentrant-lock',
+    title: 'ReentrantLock',
+    group: 'Explicit Locks',
+    definition: 'An explicit, reentrant mutual-exclusion lock implementing the Lock interface, offering everything synchronized does plus tryLock, lockInterruptibly, and configurable fairness.',
+    whyItMatters: [
+      'Unlike synchronized, acquisition and release are separate statements, so a forgotten unlock leaks the lock forever instead of the compiler enforcing release',
+      'Backed by AbstractQueuedSynchronizer (AQS), the same framework underlying Semaphore, CountDownLatch, and ReentrantReadWriteLock',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `Lock lock = new ReentrantLock();
+lock.lock();
+try {
+    // critical section
+} finally {
+    lock.unlock();
+}`,
+      },
+      note: 'unlock() in finally is not optional — without it an exception mid-section leaves the lock held forever.',
+    },
+    remember: [
+      'try/finally is mandatory discipline, not a style choice — synchronized releases automatically on any exit path, explicit locks do not',
+      'Reentrant like synchronized: the owning thread can re-acquire without deadlocking itself, but must call unlock() the same number of times',
+    ],
+    interviewAngle: {
+      q: 'Why would you choose ReentrantLock over synchronized?',
+      a: 'When you need tryLock (non-blocking attempts), lockInterruptibly (cancellable waits), fairness ordering, or non-block-structured locking (acquire in one method, release in another) — none of which synchronized supports.',
+    },
+    readMinutes: 2,
+    related: ['try-lock', 'lock-interruptibly', 'lock-fairness'],
+  },
+  {
+    id: 'try-lock',
+    title: 'tryLock()',
+    group: 'Explicit Locks',
+    definition: 'A non-blocking (or bounded-wait, with a timeout overload) attempt to acquire a lock that returns false instead of blocking indefinitely when the lock is unavailable.',
+    whyItMatters: [
+      'Enables deadlock avoidance: a thread that fails to acquire a second lock can back off and retry instead of holding the first lock while waiting forever',
+      'Lets a thread do useful work (or give up) instead of blocking — synchronized offers no equivalent',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `if (lock.tryLock(500, TimeUnit.MILLISECONDS)) {
+    try { /* work */ } finally { lock.unlock(); }
+} else {
+    // back off, log, or take an alternate path
+}`,
+      },
+    },
+    remember: [
+      'The timed overload throws InterruptedException — it is itself interruptible, unlike the zero-arg tryLock()',
+      'Classic use: acquire multiple locks in arbitrary order safely by trying each and releasing-all-and-retrying on failure, avoiding the lock-ordering deadlock problem entirely',
+    ],
+    readMinutes: 1,
+    related: ['reentrant-lock'],
+  },
+  {
+    id: 'lock-interruptibly',
+    title: 'lockInterruptibly()',
+    group: 'Explicit Locks',
+    definition: 'Acquires the lock, blocking as normal, but responds to Thread.interrupt() by throwing InterruptedException instead of ignoring it while waiting.',
+    whyItMatters: [
+      'A thread blocked on plain lock() (or a synchronized monitor) is uninterruptible until it gets the lock — this is the only way to make lock *acquisition itself* cancellable',
+      'Essential for building responsive cancellation into services that must not deadlock a shutdown sequence waiting on a contended lock',
+    ],
+    remember: [
+      'Only affects waiting to acquire — once held, the critical section still needs its own interruption checks if it does blocking work',
+    ],
+    readMinutes: 1,
+    related: ['reentrant-lock'],
+  },
+  {
+    id: 'lock-fairness',
+    title: 'Lock Fairness Policy',
+    group: 'Explicit Locks',
+    definition: 'ReentrantLock (and ReentrantReadWriteLock) can be constructed with fair=true to grant the lock to the longest-waiting thread instead of allowing barging.',
+    whyItMatters: [
+      'Fair mode prevents thread starvation under sustained contention, but costs significant throughput — enforcing strict queue order defeats optimizations like allowing a thread already on the CPU to grab a just-released lock',
+      'Default is unfair (false) precisely because barging is much faster in the common case and starvation is rare in practice',
+    ],
+    remember: [
+      'Fairness is a constructor argument, not something you can toggle at runtime',
+      'Even a "fair" lock does not guarantee FIFO for every internal operation (e.g. tryLock() with no timeout can still barge even on a fair lock)',
+    ],
+    interviewAngle: {
+      q: 'When would you actually pay the cost of a fair lock?',
+      a: 'Only when measured starvation is a real problem — e.g. a low-priority background thread never getting the lock under heavy load — since fairness can drop throughput by an order of magnitude under contention.',
+    },
+    readMinutes: 1,
+    related: ['reentrant-lock'],
+  },
+  {
+    id: 'condition-variables',
+    title: 'Condition',
+    group: 'Explicit Locks',
+    definition: 'The java.util.concurrent.locks replacement for Object.wait/notify — created from a Lock via newCondition(), supporting multiple independent wait-sets per lock.',
+    whyItMatters: [
+      'A single ReentrantLock can spawn several Conditions (e.g. notFull and notEmpty on a bounded buffer), so signaling can target exactly the threads waiting on that specific predicate instead of waking everyone with notifyAll()',
+      'await()/signal()/signalAll() mirror wait/notify/notifyAll semantics exactly, including the requirement to hold the lock and to re-check the predicate in a loop (spurious wakeups still possible)',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `Lock lock = new ReentrantLock();
+Condition notEmpty = lock.newCondition();
+Condition notFull = lock.newCondition();
+// producer: notFull.await() while full; notEmpty.signal() after adding
+// consumer: notEmpty.await() while empty; notFull.signal() after removing`,
+      },
+    },
+    remember: [
+      'await() releases the lock while waiting and reacquires it before returning, same contract as Object.wait()',
+      'Splitting one intrinsic monitor’s single wait-set into multiple Conditions avoids the "thundering herd" of notifyAll waking threads waiting on unrelated predicates',
+    ],
+    readMinutes: 2,
+    related: ['reentrant-lock'],
+  },
+
+  // --- Read/Write Locks ---
+  {
+    id: 'read-write-lock',
+    title: 'ReadWriteLock / ReentrantReadWriteLock',
+    group: 'Read/Write Locks',
+    definition: 'A lock pair — a shared read lock and an exclusive write lock — allowing any number of concurrent readers when no writer holds the lock, but only one writer at a time and no readers during a write.',
+    whyItMatters: [
+      'Improves throughput dramatically over a single mutex for read-heavy workloads, since readers no longer serialize against each other, only against writers',
+      'Comes with real bookkeeping cost: internally an int holds both read and write hold counts packed into bit-shifted halves, so it is heavier per-acquisition than a plain ReentrantLock',
+    ],
+    remember: [
+      'A thread holding the write lock can downgrade to the read lock (acquire read before releasing write) without releasing exclusivity in between — the reverse, upgrading read to write, is not supported and self-deadlocks',
+      'Only worth it when reads are both frequent and non-trivial in duration — for very short critical sections the read/write bookkeeping overhead can beat the concurrency gain',
+    ],
+    interviewAngle: {
+      q: 'Why can a ReentrantReadWriteLock deadlock if a thread tries to upgrade its own read lock to a write lock?',
+      a: 'Because the write lock cannot be acquired while any read lock is held, including by the same thread — and that thread cannot release its read lock and immediately reacquire the write lock atomically without another thread grabbing the write lock in between, so the naive attempt just blocks forever waiting on itself.',
+    },
+    readMinutes: 2,
+    related: ['reentrant-lock', 'lock-striping'],
+  },
+  {
+    id: 'rw-lock-writer-starvation',
+    title: 'Writer Starvation Under Read Locks',
+    group: 'Read/Write Locks',
+    definition: 'With a non-fair ReentrantReadWriteLock, a steady stream of new readers can keep acquiring the read lock and indefinitely delay a waiting writer.',
+    whyItMatters: [
+      'A read-heavy system that looks perfectly healthy under light load can silently starve writers once read traffic becomes continuous, since each individual reader only holds the lock briefly',
+      'Fair mode fixes this by making new readers block once a writer is queued, at the cost of reduced read concurrency',
+    ],
+    remember: [
+      'Non-fair mode explicitly favors readers over queued writers when readers keep arriving — this is documented, intentional behavior, not a bug',
+    ],
+    readMinutes: 1,
+    related: ['read-write-lock', 'lock-fairness'],
+  },
+
+  // --- Advanced Locks ---
+  {
+    id: 'stamped-lock-optimistic',
+    title: 'StampedLock and Optimistic Reads',
+    group: 'Advanced Locks',
+    definition: 'A Java 8 lock offering read, write, and a third optimistic-read mode that takes no lock at all — it hands back a stamp and the caller validates afterward that no write occurred during the read.',
+    whyItMatters: [
+      'Optimistic reads avoid all reader-side memory contention (no CAS, no shared counter increment) — under high read concurrency this beats ReentrantReadWriteLock by a wide margin because readers never write to shared state at all',
+      'Not reentrant — recursively acquiring on the same thread deadlocks, unlike ReentrantLock and ReentrantReadWriteLock',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `long stamp = lock.tryOptimisticRead();
+double x = this.x, y = this.y; // read fields without locking
+if (!lock.validate(stamp)) {
+    stamp = lock.readLock();
+    try { x = this.x; y = this.y; } finally { lock.unlockRead(stamp); }
+}`,
+      },
+      note: 'Fields read during the optimistic window must be local copies — re-reading a field after validate() defeats the purpose.',
+    },
+    remember: [
+      'Not reentrant, does not support Condition, and is not a java.util.concurrent.locks.Lock (different API surface entirely)',
+      'validate() only tells you a write did not occur — it does not itself synchronize, so the values read during the optimistic window can still be a torn/inconsistent snapshot if you read more than one field without care',
+    ],
+    interviewAngle: {
+      q: 'Why is StampedLock generally faster than ReentrantReadWriteLock for read-heavy code?',
+      a: 'Its optimistic-read mode lets readers proceed without acquiring anything — no shared state is touched at all unless validate() detects a concurrent write, at which point it falls back to a real read lock. ReadWriteLock readers always mutate a shared reader count, which becomes a contention point at high concurrency.',
+    },
+    readMinutes: 2,
+    related: ['read-write-lock'],
+  },
+  {
+    id: 'stamped-lock-no-reentrancy',
+    title: 'StampedLock Is Not Reentrant',
+    group: 'Advanced Locks',
+    definition: 'Calling readLock() or writeLock() again on the same thread that already holds one — even indirectly through a recursive call — blocks forever instead of succeeding.',
+    whyItMatters: [
+      'This is the most common production bug with StampedLock: code migrated from ReentrantLock/ReentrantReadWriteLock assumes reentrancy and self-deadlocks the first time a method calls another method that also locks',
+    ],
+    remember: [
+      'Because stamps are just longs with no owner-thread tracking, StampedLock also cannot detect or report which thread holds it — debugging a stuck stamped lock is harder than a stuck ReentrantLock',
+    ],
+    readMinutes: 1,
+    related: ['stamped-lock-optimistic'],
+  },
+  {
+    id: 'lock-striping',
+    title: 'Lock Striping / Segmentation',
+    group: 'Advanced Locks',
+    definition: 'Splitting one shared resource into N independently-locked stripes (e.g. an array of locks indexed by hash) so unrelated operations can proceed in parallel instead of contending on a single lock.',
+    whyItMatters: [
+      'This is the technique legacy ConcurrentHashMap used internally (pre-Java 8, 16 segments by default) to allow concurrent writers as long as they hash to different segments',
+      'Operations that must span the whole structure (like size() or a global iteration) become more expensive — they may need to acquire every stripe, or accept an approximate/weakly-consistent answer',
+    ],
+    remember: [
+      'The tradeoff is fixed at construction — stripe count is a capacity-planning decision, not something that adapts to load automatically',
+      'Choosing too few stripes reduces the benefit (back to coarse-grained contention); too many wastes memory and complicates operations needing global consistency',
+    ],
+    interviewAngle: {
+      q: 'How would you design a thread-safe rate limiter or counter map for millions of keys without one global lock?',
+      a: 'Stripe the lock by hashing the key into a fixed-size array of locks (or use per-bucket locks as ConcurrentHashMap does), so contention is limited to keys that happen to collide into the same stripe rather than serializing all keys through one mutex.',
+    },
+    readMinutes: 2,
+    related: ['read-write-lock'],
+  },
+
+  // --- Synchronizers ---
+  {
+    id: 'semaphore',
+    title: 'Semaphore',
+    group: 'Synchronizers',
+    definition: 'A counter-based synchronizer that limits the number of threads that can access a resource concurrently, via acquire() (decrement, blocking if zero) and release() (increment).',
+    whyItMatters: [
+      'Unlike a lock, a Semaphore has no notion of ownership — any thread can call release(), including one that never called acquire(), which makes it useful for signaling between threads but also a source of bugs if permits leak or get released twice',
+      'A Semaphore with 1 permit behaves like a lock but without reentrancy or ownership checks — acquiring twice on the same thread with permits=1 deadlocks',
+    ],
+    remember: [
+      'Classic uses: bounding concurrent access to a limited resource pool (DB connections, outbound HTTP calls) and implementing simple producer/consumer signaling',
+      'Fair vs non-fair construction exists here too, same throughput-vs-starvation tradeoff as ReentrantLock',
+    ],
+    readMinutes: 1,
+    related: ['reentrant-lock'],
+  },
+  {
+    id: 'countdown-latch',
+    title: 'CountDownLatch',
+    group: 'Synchronizers',
+    definition: 'A one-shot synchronizer that lets one or more threads block via await() until a counter, decremented by countDown() calls from other threads, reaches zero.',
+    whyItMatters: [
+      'It cannot be reset — once the count hits zero every past and future await() returns immediately forever; a workflow needing repeated synchronization points needs CyclicBarrier instead',
+      'Common pattern: start N worker threads, have the main thread await() a latch that each worker counts down on completion, to know when all finished',
+    ],
+    remember: [
+      'countDown() can be called more times than the initial count with no error (count just floors at zero) — and by threads that never call await() at all',
+    ],
+    interviewAngle: {
+      q: 'CountDownLatch vs CyclicBarrier — when does the difference actually matter?',
+      a: 'A latch is single-use and decrements from any number of arbitrary threads (asymmetric: waiters vs counters can be different threads), while a barrier is reusable and requires the exact same fixed set of N threads to each arrive before any proceeds — used for phased, repeating computations like generation-based simulations.',
+    },
+    readMinutes: 1,
+    related: ['cyclic-barrier'],
+  },
+  {
+    id: 'cyclic-barrier',
+    title: 'CyclicBarrier',
+    group: 'Synchronizers',
+    definition: 'A reusable synchronizer that blocks a fixed-size group of threads at await() until all of them arrive, then releases all simultaneously and automatically resets for the next round.',
+    whyItMatters: [
+      'Supports an optional barrier action — a Runnable executed by the last arriving thread once all parties reach the barrier, useful for merging per-thread partial results before the next phase begins',
+      'A single party failing to call await() (crash, exception, or getting stuck) breaks the barrier for everyone still waiting, throwing BrokenBarrierException on the others — unlike a latch, one straggler can permanently jam a barrier',
+    ],
+    remember: [
+      'Reusable across multiple phases, unlike CountDownLatch which is strictly one-shot',
+      'Requires the exact configured number of parties every round — you cannot dynamically add or remove participants',
+    ],
+    readMinutes: 1,
+    related: ['countdown-latch'],
+  },
+  {
+    id: 'exchanger',
+    title: 'Exchanger',
+    group: 'Synchronizers',
+    definition: 'A synchronization point where exactly two threads meet and atomically swap objects via exchange() — each thread\'s call blocks until the other thread arrives with its own object.',
+    whyItMatters: [
+      'Niche but occasionally exactly right for pipeline designs — e.g. two threads swapping a "full" buffer for an "empty" one to double-buffer work without extra copying or locking',
+    ],
+    remember: [
+      'Strictly pairwise — a third thread calling exchange() concurrently just waits for the next available partner, there is no broadcast/group form',
+    ],
+    readMinutes: 1,
+  },
+
+  // --- Design Tradeoffs ---
+  {
+    id: 'explicit-lock-vs-synchronized',
+    title: 'Explicit Locks vs synchronized: The Real Tradeoffs',
+    group: 'Design Tradeoffs',
+    definition: 'Explicit Lock implementations trade the safety of automatic, block-structured release for flexibility synchronized cannot offer: tryLock, interruptible acquisition, configurable fairness, multiple Conditions, and non-block-structured hand-off locking.',
+    whyItMatters: [
+      'Non-block-structured locking (acquire in one method, release in another, or hand a held lock across threads/callbacks) is impossible with synchronized, which is strictly scoped to a single block — some designs like lock coupling in linked structures genuinely need this',
+      'Modern JVMs optimize synchronized well (biased/thin/fat locking) and it cannot be misused into a leaked lock, so the default guidance is still: reach for synchronized first, use an explicit Lock only when you need a specific capability it lacks',
+    ],
+    remember: [
+      'synchronized cannot time out, cannot be interrupted while waiting, and cannot be polled — Lock.tryLock()/lockInterruptibly() fill exactly those three gaps',
+      'The forgotten try/finally is the single biggest real-world risk of switching to explicit locks — it is a footgun synchronized structurally cannot have',
+    ],
+    diagram: `flowchart LR
+  A[synchronized] -->|simple scoped block| B[JVM auto releases]
+  C[Lock] -->|manual acquire| D[try finally required]
+  D -->|adds| E[tryLock timeout interrupt fairness]`,
+    readMinutes: 2,
+    related: ['reentrant-lock', 'try-lock', 'lock-interruptibly'],
+  },
+]
+
+const concurrentCollectionsConcepts: ConceptCard[] = [
+// --- Group: ConcurrentHashMap ---
+  {
+    id: 'chm-locking-evolution',
+    title: 'ConcurrentHashMap Locking: Segments to Bins',
+    group: 'ConcurrentHashMap',
+    definition: 'Java 7 ConcurrentHashMap partitioned the table into a fixed set of Segments (each its own ReentrantLock), while Java 8+ dropped segments entirely and synchronizes per-bin using CAS for empty-bin inserts and a synchronized block only on the head node when a bin already has entries.',
+    whyItMatters: [
+      'Java 8 concurrency level is no longer capped by a segment count set at construction — contention scales with table size, not a fixed 16-way split',
+      'Reads never block: get() is lock-free in both versions, relying on volatile reads of Node.val',
+    ],
+    remember: ['Segment class still exists in Java 8+ only for API/serialization compatibility, not for locking', 'Resize in Java 8 is done cooperatively — multiple threads can help transfer bins in parallel'],
+    readMinutes: 2,
+    related: ['chm-null-prohibition', 'chm-compute-atomicity'],
+  },
+  {
+    id: 'chm-null-prohibition',
+    title: 'Why ConcurrentHashMap Forbids Null',
+    group: 'ConcurrentHashMap',
+    definition: 'ConcurrentHashMap throws NullPointerException on a null key or value because in a concurrent map, get(key) returning null is inherently ambiguous between "not mapped" and "mapped to null," and there is no safe way to resolve that with containsKey() without a second, non-atomic call.',
+    whyItMatters: [
+      'HashMap tolerates the ambiguity because a single-threaded caller can trust the map was not mutated between the two calls — that guarantee does not exist under concurrent access',
+    ],
+    remember: ['Applies to keys, values, and elements of the concurrent Set/Collection views alike', 'Doug Lea\'s design choice, not a JVM limitation — deliberately closes off a race-prone API pattern'],
+    readMinutes: 1,
+    interviewAngle: { q: 'Why can HashMap store null but ConcurrentHashMap cannot?', a: 'Because in a concurrent map, checking containsKey() then get() is two separate atomic operations — another thread can mutate the map between them, making null-as-absent vs null-as-value unresolvable.' },
+  },
+  {
+    id: 'chm-compute-atomicity',
+    title: 'compute/computeIfAbsent Atomicity Gotchas',
+    group: 'ConcurrentHashMap',
+    definition: 'ConcurrentHashMap guarantees compute(), computeIfAbsent(), and merge() run atomically per key — the whole read-modify-write happens under that bin\'s lock — but the mapping function must not itself touch the same map, or the thread deadlocks against its own held lock or corrupts the table.',
+    whyItMatters: [
+      'This atomicity is the correct replacement for the classic "check-then-act" race (if !containsKey then put) that plagues HashMap under concurrent use',
+      'A slow or blocking function passed to compute() holds that bin\'s lock the whole time, stalling every other thread contending for the same bin',
+    ],
+    remember: ['Recursive update on the same key from within computeIfAbsent throws IllegalStateException or deadlocks depending on JDK version — never call map.put/compute on the same map inside the lambda', 'Keep the mapping function fast and side-effect-free'],
+    example: {
+      code: { language: 'java', code: 'counts.computeIfAbsent(key, k -> new AtomicLong()).incrementAndGet();' },
+      note: 'Atomic get-or-create without a separate containsKey race.',
+    },
+    readMinutes: 2,
+    related: ['chm-locking-evolution'],
+  },
+  {
+    id: 'chm-weakly-consistent-iteration',
+    title: 'Weakly Consistent Iterators',
+    group: 'ConcurrentHashMap',
+    definition: 'ConcurrentHashMap iterators reflect the state of the map at (or after) iterator creation and never throw ConcurrentModificationException, but they are not guaranteed to show every update made concurrently during the traversal — a put during iteration may or may not be seen by that iterator.',
+    whyItMatters: [
+      'Trades a strict consistency guarantee for never blocking and never failing — appropriate for a highly-contended shared structure where pausing all writers to iterate safely would defeat the point',
+    ],
+    remember: ['size(), isEmpty(), and containsValue() are also only approximate under concurrent modification — they scan live buckets and can be stale by the time they return', 'Contrast with HashMap\'s fail-fast iterator, which throws ConcurrentModificationException on any detected structural change'],
+    readMinutes: 2,
+    related: ['weakly-consistent-vs-failfast'],
+  },
+  {
+    id: 'chm-vs-synchronizedmap-vs-hashtable',
+    title: 'ConcurrentHashMap vs synchronizedMap vs Hashtable',
+    group: 'ConcurrentHashMap',
+    definition: 'Collections.synchronizedMap() and the legacy Hashtable both wrap every operation in one global lock, serializing all access, while ConcurrentHashMap partitions locking at the bin level and never locks for reads at all.',
+    whyItMatters: [
+      'Under real contention synchronizedMap/Hashtable throughput collapses because every thread — readers included — funnels through a single lock',
+      'synchronizedMap still requires the caller to manually synchronize on the map itself when iterating, since its iterator is fail-fast, not weakly consistent',
+    ],
+    remember: ['Hashtable additionally forbids null like ConcurrentHashMap, but for a different reason — it predates the ambiguity discussion and just never allowed it'],
+    readMinutes: 1,
+  },
+
+  // --- Group: CopyOnWrite Collections ---
+  {
+    id: 'cow-internals',
+    title: 'CopyOnWriteArrayList/Set Internals',
+    group: 'CopyOnWrite Collections',
+    definition: 'Every mutation (add, remove, set) on a CopyOnWriteArrayList or CopyOnWriteArraySet copies the entire backing array, applies the change to the copy, and atomically swaps the volatile array reference — readers always see a fully-formed, immutable snapshot with no locking at all.',
+    whyItMatters: [
+      'Reads are as fast as a plain ArrayList and never block or throw, because a reader is always iterating a snapshot array that no writer can mutate underneath it',
+      'Writes are O(n) and allocate a new array every time, so this structure is fundamentally wrong for write-heavy workloads regardless of read pattern',
+    ],
+    remember: ['CopyOnWriteArraySet is implemented as a CopyOnWriteArrayList internally, using linear scan for uniqueness checks — O(n) contains() and add()', 'Good fit: listener/observer lists that are read constantly (every event dispatch) and modified rarely (occasional subscribe/unsubscribe)'],
+    readMinutes: 2,
+    related: ['cow-iterator-snapshot'],
+  },
+  {
+    id: 'cow-iterator-snapshot',
+    title: 'CopyOnWrite Iterators Never Reflect Later Writes',
+    group: 'CopyOnWrite Collections',
+    definition: 'A CopyOnWriteArrayList iterator is bound to the array snapshot that existed at the moment the iterator was created and will never show any add/remove/set made after that point, even ones from the same thread, and its remove() method is unsupported (throws UnsupportedOperationException).',
+    whyItMatters: [
+      'This is stronger than "weakly consistent" — it is a true point-in-time snapshot, not a best-effort partial view, which is exactly why it can never throw ConcurrentModificationException',
+    ],
+    remember: ['Iterator.remove/add/set all throw UnsupportedOperationException — the snapshot is read-only by design', 'A common bug: iterating and expecting a concurrent writer\'s update to appear mid-loop — it structurally cannot'],
+    readMinutes: 1,
+  },
+
+  // --- Group: BlockingQueue Family ---
+  {
+    id: 'blocking-queue-family',
+    title: 'BlockingQueue Family Comparison',
+    group: 'BlockingQueue Family',
+    definition: 'BlockingQueue implementations differ in bounding, ordering, and backing structure: ArrayBlockingQueue is a fixed-capacity circular array with one lock shared by put/take, LinkedBlockingQueue is optionally-bounded with separate put and take locks for higher throughput, PriorityBlockingQueue is unbounded and orders by Comparator instead of FIFO, SynchronousQueue holds zero elements and pairs each put directly with a waiting take, and DelayQueue only releases elements once their delay has expired.',
+    whyItMatters: [
+      'LinkedBlockingQueue\'s two-lock design lets a producer and consumer proceed concurrently without contending on the same lock, unlike ArrayBlockingQueue\'s single lock for both ends',
+      'SynchronousQueue has no internal capacity at all — a put() blocks until some thread calls take(), making it a direct handoff point rather than a buffer',
+    ],
+    remember: ['Executors.newCachedThreadPool() uses a SynchronousQueue internally, which is why it can spawn unbounded threads instead of queuing work', 'PriorityBlockingQueue is unbounded by default — a producer that outpaces consumers can grow it without limit and exhaust heap, unlike a bounded ArrayBlockingQueue which would instead apply backpressure'],
+    diagram: 'flowchart LR\n  producer[Producer] -->|put blocks if full| queue[Bounded Queue]\n  queue -->|take blocks if empty| consumer[Consumer]',
+    readMinutes: 3,
+    related: ['blocking-vs-backpressure'],
+  },
+  {
+    id: 'blocking-vs-backpressure',
+    title: 'Bounded Queues as Backpressure',
+    group: 'BlockingQueue Family',
+    definition: 'A bounded BlockingQueue (fixed-capacity ArrayBlockingQueue, or LinkedBlockingQueue given an explicit capacity) makes put() block once full, which is the mechanism that lets a slow consumer naturally throttle a fast producer instead of the producer piling up unbounded work in memory.',
+    whyItMatters: [
+      'Using an unbounded LinkedBlockingQueue (the no-arg constructor defaults to Integer.MAX_VALUE capacity) in a producer-consumer pipeline silently removes backpressure — the queue just grows until OutOfMemoryError instead of signaling the producer to slow down',
+    ],
+    remember: ['offer(timeout) and poll(timeout) give bounded-wait alternatives to the fully-blocking put()/take() when a thread cannot afford to block indefinitely'],
+    readMinutes: 1,
+  },
+  {
+    id: 'synchronousqueue-handoff',
+    title: 'SynchronousQueue as a Direct Handoff',
+    group: 'BlockingQueue Family',
+    definition: 'SynchronousQueue has zero internal capacity — it is not a buffer at all, only a rendezvous point where a put() call and a take() call must meet before either returns, making every element handed directly from one thread to another with no intermediate storage.',
+    whyItMatters: [
+      'Because there\'s nothing to store, size() always returns 0 and peek() always returns null, which surprises anyone expecting normal queue semantics',
+    ],
+    remember: ['Two internal modes exist — fair (FIFO handoff via a queue of waiting threads) and unfair/non-fair (a stack, default, generally higher throughput)'],
+    readMinutes: 1,
+  },
+
+  // --- Group: Lock-Free Structures ---
+  {
+    id: 'concurrentlinkedqueue-cas',
+    title: 'ConcurrentLinkedQueue/Deque: Lock-Free via CAS',
+    group: 'Lock-Free Structures',
+    definition: 'ConcurrentLinkedQueue and ConcurrentLinkedDeque are unbounded, non-blocking structures built on Michael-Scott-style CAS loops on node links rather than locks — offer()/poll() retry a compare-and-swap until it succeeds instead of ever acquiring a lock.',
+    whyItMatters: [
+      'No thread can block another here — a thread that gets preempted mid-CAS-retry never holds a lock that stalls others, unlike ArrayBlockingQueue where a stalled lock-holder stalls everyone',
+      'They are not BlockingQueues — there is no put()/take() that waits for space or an element, only non-blocking offer()/poll() that return immediately (empty or full-equivalent never applies since they\'re unbounded)',
+    ],
+    remember: ['size() is O(n) and only approximate under concurrent modification — the class explicitly discourages relying on it', 'Right choice when you need a genuinely non-blocking queue and don\'t need bounding or blocking semantics'],
+    readMinutes: 2,
+  },
+  {
+    id: 'concurrentskiplist-ordering',
+    title: 'ConcurrentSkipListMap/Set: Sorted, Lock-Free, No TreeMap Equivalent',
+    group: 'Lock-Free Structures',
+    definition: 'ConcurrentSkipListMap/Set provide the concurrent, sorted equivalent of TreeMap/TreeSet using a probabilistic multi-level linked-list (skip list) structure with lock-free CAS-based insertion, since a red-black tree\'s rebalancing cannot be done lock-free without effectively serializing writers.',
+    whyItMatters: [
+      'There is no concurrent TreeMap — a red-black tree needs whole-subtree rotations to stay balanced, which don\'t decompose into small CAS steps the way skip-list level insertion does',
+      'Average O(log n) for get/put/remove, same asymptotic complexity as TreeMap, achieved via random leveling instead of guaranteed balance',
+    ],
+    remember: ['Navigable operations (firstKey, ceilingKey, headMap, etc.) all work as in TreeMap, and are safe under concurrent modification', 'size() is also O(n) here, same caveat as the other lock-free structures'],
+    readMinutes: 2,
+  },
+  {
+    id: 'weakly-consistent-vs-failfast',
+    title: 'Weakly Consistent vs Fail-Fast: The General Contract',
+    group: 'Lock-Free Structures',
+    definition: 'Every java.util.concurrent collection (ConcurrentHashMap, CopyOnWrite*, ConcurrentLinkedQueue, ConcurrentSkipListMap, the BlockingQueue family) documents its iterators as weakly consistent — tolerant of concurrent modification, never throwing ConcurrentModificationException — in contrast to the fail-fast iterators of HashMap, ArrayList, and the rest of java.util, which detect structural modification via a modCount check and throw defensively rather than risk silent corruption.',
+    whyItMatters: [
+      'Fail-fast exists to surface bugs fast in single-threaded-assumption code; weakly consistent exists because throwing is the wrong tradeoff for structures explicitly designed for concurrent access',
+      '"Weakly consistent" is a spectrum, not one guarantee — CopyOnWrite gives a strict point-in-time snapshot, while ConcurrentHashMap only promises to reflect the state at-or-since creation with no guarantee on which concurrent updates are visible',
+    ],
+    remember: ['Never rely on a java.util.concurrent iterator throwing to detect a bug — it won\'t, by design'],
+    readMinutes: 2,
+    related: ['chm-weakly-consistent-iteration', 'cow-iterator-snapshot'],
+  },
+]
+
+const asyncConcepts: ConceptCard[] = [
+// Group: Executor Framework
+  {
+    id: 'executor-vs-thread',
+    title: 'Executor Framework Abstraction',
+    group: 'Executor Framework',
+    definition: 'The Executor/ExecutorService abstraction decouples task submission from thread management, letting you swap the underlying pooling policy without touching call sites.',
+    whyItMatters: [
+      'Raw thread-per-task code has no back-pressure — an unbounded flood of new Thread() calls can exhaust OS resources',
+      'ExecutorService adds lifecycle control (shutdown, awaitTermination) that bare threads lack',
+    ],
+    remember: ['submit() returns a Future; execute() is fire-and-forget with no result handle'],
+    readMinutes: 2,
+  },
+  {
+    id: 'executors-factory-pitfalls',
+    title: 'Executors Factory Methods and Their Traps',
+    group: 'Executor Framework',
+    definition: 'Executors.newFixedThreadPool/newCachedThreadPool/newSingleThreadExecutor are convenience wrappers over ThreadPoolExecutor with pre-set, often dangerous queue and pool configurations.',
+    whyItMatters: [
+      'newFixedThreadPool uses an unbounded LinkedBlockingQueue — under sustained overload, tasks queue forever instead of failing fast, hiding backlog until OOM',
+      'newCachedThreadPool has no upper bound on thread count (Integer.MAX_VALUE), so a burst of tasks can spawn thousands of threads',
+    ],
+    remember: [
+      'Effectively deprecated in production guidance in favor of constructing ThreadPoolExecutor directly with explicit bounds',
+      'newSingleThreadExecutor still uses an unbounded queue underneath a single worker',
+    ],
+    interviewAngle: { q: 'Why do style guides discourage Executors.newFixedThreadPool in production?', a: 'Its unbounded work queue means a slow consumer or task surge accumulates unbounded memory instead of applying back-pressure or rejecting — failures surface late as OOM rather than early as a rejection.' },
+    readMinutes: 2,
+  },
+  {
+    id: 'threadpoolexecutor-internals',
+    title: 'ThreadPoolExecutor Core/Max/Queue Interplay',
+    group: 'Executor Framework',
+    definition: 'A ThreadPoolExecutor grows workers up to corePoolSize first, then queues tasks, and only creates threads beyond core up to maximumPoolSize once the queue is full.',
+    whyItMatters: [
+      'This order surprises people: with an unbounded queue, maximumPoolSize is effectively dead code because the queue never fills, so threads never exceed corePoolSize',
+      'To actually use extra capacity up to maximumPoolSize, the queue must be bounded (e.g. ArrayBlockingQueue)',
+    ],
+    remember: [
+      'Order is: use idle core thread -> enqueue -> spin up thread beyond core (if queue full and below max) -> reject (if at max and queue full)',
+      'keepAliveTime only reclaims threads above corePoolSize by default; allowCoreThreadTimeOut(true) extends that to core threads too',
+    ],
+    diagram: 'flowchart LR\n  a[Task submitted] --> b{Core threads free}\n  b -->|yes| c[Run on core thread]\n  b -->|no| d{Queue has room}\n  d -->|yes| e[Enqueue task]\n  d -->|no| f{Below max pool size}\n  f -->|yes| g[Spawn extra thread]\n  f -->|no| h[Reject task]',
+    readMinutes: 3,
+  },
+  {
+    id: 'threadpool-rejection-policy',
+    title: 'RejectedExecutionHandler Policies',
+    group: 'Executor Framework',
+    definition: 'When a bounded queue and max pool size are both saturated, the configured RejectedExecutionHandler decides what happens to the new task: abort, discard, discard-oldest, or caller-runs.',
+    whyItMatters: [
+      'AbortPolicy (default) throws RejectedExecutionException — silent failure if the caller does not handle it',
+      'CallerRunsPolicy runs the task on the submitting thread itself, which naturally throttles the producer since it can no longer submit while busy executing',
+    ],
+    remember: [
+      'DiscardPolicy silently drops the task — dangerous for anything with side effects or correctness requirements',
+      'CallerRunsPolicy is a common choice for back-pressure in producer/consumer pipelines',
+    ],
+    readMinutes: 2,
+    related: ['threadpoolexecutor-internals'],
+  },
+  {
+    id: 'scheduled-thread-pool',
+    title: 'ScheduledThreadPoolExecutor Semantics',
+    group: 'Executor Framework',
+    definition: 'ScheduledExecutorService runs delayed or periodic tasks, but scheduleAtFixedRate and scheduleWithFixedDelay differ in how they handle a task that overruns its period.',
+    whyItMatters: [
+      'fixedRate schedules the next run relative to the previous scheduled start time, so a long-running task causes back-to-back catch-up executions once it finally finishes',
+      'fixedDelay schedules the next run relative to the previous completion, so overruns just push the whole schedule later without pile-up',
+    ],
+    remember: ['A single uncaught exception in a scheduled task silently cancels all future executions of that task — always wrap the body in try/catch'],
+    readMinutes: 2,
+  },
+
+  // Group: Future & CompletableFuture
+  {
+    id: 'future-limitations',
+    title: 'Future Interface Limitations',
+    group: 'Future & CompletableFuture',
+    definition: 'java.util.concurrent.Future gives you a blocking get() and cancellation but no way to attach a callback, combine with other futures, or compose a pipeline without blocking a thread.',
+    whyItMatters: [
+      'Any chaining ("when this finishes, then do that") forces a blocking get() somewhere, tying up a thread just to wait',
+      'This gap is exactly what CompletableFuture (Java 8) was introduced to close',
+    ],
+    remember: ['Future.cancel(true) only interrupts if the task cooperates by checking Thread.interrupted() — it cannot forcibly stop a running thread'],
+    readMinutes: 2,
+  },
+  {
+    id: 'completablefuture-composition',
+    title: 'thenApply vs thenCompose vs thenCombine',
+    group: 'Future & CompletableFuture',
+    definition: 'thenApply transforms a result in place, thenCompose flattens a chained async call that itself returns a CompletableFuture, and thenCombine joins two independent futures with a function.',
+    whyItMatters: [
+      'Using thenApply where thenCompose is needed produces a nested CompletableFuture<CompletableFuture<T>> instead of a flat pipeline — a classic map-vs-flatMap mistake',
+      'thenCombine is for two unrelated async computations that both need to finish before proceeding, unlike thenCompose\'s sequential dependency',
+    ],
+    diagram: 'flowchart LR\n  a[fetchUser] --> b[thenCompose fetchOrders]\n  a --> c[thenCombine fetchPricing]\n  b --> d[Combined result]\n  c --> d',
+    readMinutes: 2,
+  },
+  {
+    id: 'completablefuture-exception-handling',
+    title: 'exceptionally vs handle vs whenComplete',
+    group: 'Future & CompletableFuture',
+    definition: 'exceptionally recovers from a failure by supplying a fallback value, handle sees both outcome and exception and can transform either, and whenComplete observes both without changing the result.',
+    whyItMatters: [
+      'A stage\'s exception propagates downstream like a checked-exception chain — nothing after a failed stage runs unless something in the chain calls exceptionally/handle to recover',
+      'whenComplete is for side effects like logging/metrics; it rethrows the original exception (or a CompletionException wrapping it) rather than swallowing it',
+    ],
+    remember: ['handle() runs unconditionally (success or failure), unlike exceptionally() which only fires on failure'],
+    readMinutes: 2,
+    related: ['completablefuture-composition'],
+  },
+  {
+    id: 'completablefuture-async-variants',
+    title: 'Async Suffix Variants and Thread Control',
+    group: 'Future & CompletableFuture',
+    definition: 'thenApplyAsync (and its siblings) run the callback on the common ForkJoinPool by default instead of the thread that completed the previous stage — unless you pass an explicit Executor.',
+    whyItMatters: [
+      'Without the Async suffix, a callback can run on whatever thread happens to complete the prior stage, which for I/O completion could be a small I/O thread pool never meant to run CPU work',
+      'Omitting an explicit Executor on the Async variants silently routes blocking or CPU-heavy work onto the shared common ForkJoinPool, starving unrelated parallel-stream or fork/join work elsewhere in the JVM',
+    ],
+    remember: ['Always pass a dedicated Executor to *Async methods when the callback does blocking I/O — never let it fall onto the common pool'],
+    interviewAngle: { q: 'Why is CompletableFuture.supplyAsync(supplier) risky for a blocking database call?', a: 'With no Executor argument it runs on the common ForkJoinPool, a shared, sized-for-CPU-work pool — a blocking call there can starve parallel streams and other CompletableFuture chains across the whole JVM that also default to it.' },
+    readMinutes: 2,
+  },
+  {
+    id: 'completablefuture-multi-combine',
+    title: 'Combining Many Futures: allOf / anyOf',
+    group: 'Future & CompletableFuture',
+    definition: 'CompletableFuture.allOf waits for every future in a set to complete and returns CompletableFuture<Void>, while anyOf completes as soon as the first one does and returns its (untyped) result.',
+    whyItMatters: [
+      'allOf discards individual results — you must go back to the original futures\' join()/get() to collect values, which is a common source of boilerplate and bugs',
+      'A failure in any one future does not stop the others from running under allOf, but the combined future itself completes exceptionally once any input does',
+    ],
+    remember: ['A common idiom: futures.stream().map(CompletableFuture::join).collect(toList()) after allOf(...).join() to gather results'],
+    readMinutes: 2,
+  },
+  {
+    id: 'future-vs-completablefuture',
+    title: 'Future vs CompletableFuture Tradeoffs',
+    group: 'Future & CompletableFuture',
+    definition: 'CompletableFuture is a superset of Future adding composability and manual completion (complete()/completeExceptionally()), but that same manual-completion API means it can be completed from outside the task that created it.',
+    whyItMatters: [
+      'The ability for any caller to call complete() on a CompletableFuture breaks the "only the task itself decides its outcome" invariant Future provides, which is a real API-design footgun in shared code',
+      'Returning the raw CompletableFuture type from a public API exposes callers to that mutability; some codebases intentionally return the narrower Future type or a read-only view',
+    ],
+    readMinutes: 2,
+    related: ['future-limitations'],
+  },
+
+  // Group: Fork/Join Framework
+  {
+    id: 'forkjoin-divide-conquer',
+    title: 'Fork/Join Divide-and-Conquer Model',
+    group: 'Fork/Join Framework',
+    definition: 'ForkJoinPool executes tasks that recursively split into smaller subtasks (fork), run them in parallel, and combine their results (join), using RecursiveTask<V> for tasks that return a value or RecursiveAction for those that do not.',
+    whyItMatters: [
+      'Splitting too finely adds fork/join overhead that outweighs the parallel work; a threshold-based base case (e.g. "sort sequentially below 1000 elements") is essential, not optional',
+      'compute() typically forks one half and computes the other half directly on the current thread, rather than forking both, to avoid wasting a thread waiting on its own fork',
+    ],
+    remember: ['fork() schedules a subtask for another worker to steal; join() blocks the current task until that subtask completes'],
+    readMinutes: 3,
+  },
+  {
+    id: 'forkjoin-work-stealing',
+    title: 'Work-Stealing Deques',
+    group: 'Fork/Join Framework',
+    definition: 'Each ForkJoinPool worker thread owns a double-ended queue of tasks; it pushes/pops its own tasks from the head (LIFO, cache-friendly) while idle threads steal from the tail (FIFO) of other workers\' queues.',
+    whyItMatters: [
+      'Stealing from the opposite end minimizes contention between the owning thread and thieves, and stealing older (larger, coarser-grained) tasks tends to give the thief more work per steal',
+      'This self-balancing design is why fork/join keeps all cores busy even when subtasks have wildly uneven sizes, unlike a fixed static partition',
+    ],
+    remember: ['A worker with an empty deque becomes a thief rather than sitting idle — this is the core mechanism behind ForkJoinPool\'s throughput advantage for irregular workloads'],
+    diagram: 'flowchart LR\n  a[Worker A deque] -->|own tasks LIFO| a\n  b[Idle Worker B] -->|steals from tail| a\n  c[Idle Worker C] -->|steals from tail| a',
+    readMinutes: 3,
+    related: ['forkjoin-divide-conquer'],
+  },
+  {
+    id: 'forkjoin-common-pool-sizing',
+    title: 'Common Pool Sizing and Blocking Hazards',
+    group: 'Fork/Join Framework',
+    definition: 'ForkJoinPool.commonPool() is sized by default to Runtime.availableProcessors() - 1 and is shared JVM-wide by parallel streams, CompletableFuture async defaults, and any explicit commonPool() use.',
+    whyItMatters: [
+      'A blocking call (I/O, lock wait) inside a common-pool task ties up one of a small, fixed number of threads shared across the whole application, unlike a dedicated ExecutorService that can be sized generously',
+      'ManagedBlocker lets a task tell the pool it is about to block, so the pool can temporarily spawn a compensating thread and avoid starving other work',
+    ],
+    remember: ['On a single-core machine, commonPool() falls back to a pool size of 1, making parallel operations effectively sequential'],
+    readMinutes: 2,
+    related: ['completablefuture-async-variants'],
+  },
+
+  // Group: Modern Concurrency (Java 21+)
+  {
+    id: 'virtual-threads-executor-model',
+    title: 'Virtual Threads and the Executor Model',
+    group: 'Modern Concurrency (Java 21+)',
+    definition: 'Virtual threads (Java 21, Project Loom) are cheap, JVM-scheduled threads that let you keep the simple one-thread-per-task programming model while scaling to hundreds of thousands of concurrent blocking tasks.',
+    whyItMatters: [
+      'Executors.newVirtualThreadPerTaskExecutor() intentionally has no pooling — a fresh virtual thread is created per task and discarded, since virtual threads are cheap enough that reuse isn\'t needed',
+      'They make thread-pool tuning (core/max size, queue bounds) largely moot for I/O-bound workloads, but they do not help CPU-bound work, which still contends for the same physical cores',
+    ],
+    remember: [
+      'A blocking call on a virtual thread unmounts it from its carrier platform thread, freeing that carrier to run other virtual threads instead of sitting idle',
+      'synchronized blocks historically pinned a virtual thread to its carrier during the block (fixed for most cases in later 21+ updates) — a legacy gotcha worth knowing about for interview purposes',
+    ],
+    interviewAngle: { q: 'Should you replace a CPU-bound fixed thread pool with virtual threads?', a: 'No — virtual threads remove the cost of blocking/waiting, not the cost of computation; a CPU-bound pool should stay sized near availableProcessors() regardless of virtual vs platform threads.' },
+    readMinutes: 3,
+  },
+  {
+    id: 'structured-concurrency-intro',
+    title: 'Structured Concurrency (Preview)',
+    group: 'Modern Concurrency (Java 21+)',
+    definition: 'StructuredTaskScope treats a group of related subtasks as a single unit of work with one lifetime, so a scope\'s failure or cancellation propagates to all its children instead of leaving orphaned tasks.',
+    whyItMatters: [
+      'It directly targets a CompletableFuture pain point: nothing about allOf/thenCombine chains prevents a "leaked" subtask that keeps running after its sibling failed or the caller stopped caring',
+      'ShutdownOnFailure cancels sibling subtasks as soon as one fails, giving fail-fast semantics that manual future composition has to hand-roll',
+    ],
+    remember: ['Still a preview/incubating API as of Java 21-23 — know it conceptually for interviews, but expect it to still be evolving'],
+    readMinutes: 2,
+    related: ['virtual-threads-executor-model', 'completablefuture-multi-combine'],
+  },
+]
+
+const jvmInternalsConcepts: ConceptCard[] = [
+// Group: Class Loading
+  {
+    id: 'classloader-hierarchy',
+    title: 'ClassLoader Hierarchy',
+    group: 'Class Loading',
+    definition: 'Classes are loaded by a chain of three built-in loaders — bootstrap (native, loads java.base), platform (loads other JDK modules), and application/system (loads your classpath) — each with the previous as its parent.',
+    whyItMatters: ['The bootstrap loader has no Java-side representation — getClass().getClassLoader() returns null for java.lang.String, which trips people up in loader-identity checks'],
+    remember: ['Order: bootstrap -> platform -> application, each parent of the next', 'Pre-Java 9 this was bootstrap -> extension -> application; "extension" was renamed/restructured into "platform" with the module system'],
+    readMinutes: 2,
+    related: ['classloader-delegation-model'],
+  },
+  {
+    id: 'classloader-delegation-model',
+    title: 'Parent-First Delegation Model',
+    group: 'Class Loading',
+    definition: 'Before loading a class itself, a class loader asks its parent to try first, walking all the way up to bootstrap, so a class only gets loaded by a descendant loader if every ancestor already failed to find it.',
+    whyItMatters: ['This is what stops core-class spoofing: an application-loaded java.lang.String can never shadow the bootstrap-loaded one, because bootstrap always gets first crack at java.* names'],
+    remember: ['Delegation is a convention enforced by ClassLoader.loadClass(), not a JVM-level law — a custom loader that overrides loadClass() instead of just findClass() can break it', 'Class loading is lazy: a class is loaded only on first active use (new, static field access, static method call, subclassing), not just because it is on the classpath'],
+    diagram: 'flowchart LR\n  App[Application Loader] --> Platform[Platform Loader]\n  Platform --> Boot[Bootstrap Loader]\n  Boot -.loads first.-> Boot\n  Platform -.if boot fails.-> Platform\n  App -.if platform fails.-> App',
+    readMinutes: 2,
+    related: ['classloader-hierarchy', 'custom-classloaders'],
+  },
+  {
+    id: 'class-loading-phases',
+    title: 'Loading, Linking, Initialization',
+    group: 'Class Loading',
+    definition: 'A class goes through three ordered phases before use: loading (bytes brought in, Class object created), linking (verify, prepare, optionally resolve symbolic references), and initialization (static initializers and static field assignments run).',
+    whyItMatters: ['Initialization is deferred as late as possible and triggered by "active use" — merely referencing a class in code, or accessing a static final constant folded at compile time, does not trigger it'],
+    remember: ['A subclass reference does not force superclass initialization unless the superclass is itself actively used', 'Initialization is guaranteed thread-safe and idempotent — the JVM synchronizes per-class so only one thread runs the static initializer, others block'],
+    readMinutes: 2,
+  },
+  {
+    id: 'custom-classloaders',
+    title: 'Custom ClassLoaders',
+    group: 'Class Loading',
+    definition: 'Overriding findClass() (not loadClass()) lets an application define new class-loading sources — plugin jars, hot-reloaded code, per-tenant isolation — while still preserving parent-first delegation for everything else.',
+    whyItMatters: ['App servers and plugin frameworks use one loader per deployed unit specifically so unloading is possible: a class (and its static state) can only be garbage collected once its defining ClassLoader and every instance it loaded become unreachable'],
+    remember: ['Classloader leaks happen when something outside the deployed unit (a thread pool, a static reference held by a shared library, a ThreadLocal) still points into it, pinning the entire loader and metaspace for that "undeployed" app in memory'],
+    readMinutes: 2,
+    related: ['classloader-delegation-model', 'metaspace-vs-permgen'],
+  },
+  {
+    id: 'class-identity-and-loader',
+    title: 'Class Identity Includes Its Loader',
+    group: 'Class Loading',
+    definition: 'A class\'s runtime identity is the pair (fully-qualified name, defining ClassLoader) — the same bytecode loaded by two different loaders produces two distinct, mutually-incompatible Class objects.',
+    whyItMatters: ['This is the mechanism behind module/plugin isolation, but it also causes the classic "ClassCastException: com.foo.Bar cannot be cast to com.foo.Bar" when a class is visible through two loaders in the same JVM'],
+    interviewAngle: {
+      q: 'Two loaders each load the same .class file — is instanceof true between the resulting objects?',
+      a: 'No. Even with byte-for-byte identical bytecode, the JVM treats them as unrelated types because identity is scoped by defining loader, not just by name.',
+    },
+    readMinutes: 1,
+    related: ['classloader-delegation-model'],
+  },
+
+  // Group: Memory Areas
+  {
+    id: 'jvm-runtime-memory-areas',
+    title: 'JVM Runtime Memory Areas',
+    group: 'Memory Areas',
+    definition: 'The JVM partitions memory into the heap and method area (shared across threads) plus a JVM stack, PC register, and (for native code) a native method stack per thread.',
+    whyItMatters: ['Only the heap and method area are subject to garbage collection; the per-thread areas are reclaimed automatically when the thread exits, which is why thread-local data structures never show up as GC roots the way heap objects do'],
+    remember: ['PC register holds the address of the currently executing JVM instruction — undefined/unused for native method frames', 'Method area (Metaspace on HotSpot) stores class metadata, method bytecode, the runtime constant pool, and static variables — not instances'],
+    diagram: 'flowchart LR\n  Heap[Heap] --- Method[Method Area]\n  Method --- Stack[JVM Stack per thread]\n  Stack --- PC[PC Register per thread]\n  Stack --- Native[Native Stack per thread]',
+    readMinutes: 2,
+    related: ['metaspace-vs-permgen', 'stack-frame-structure'],
+  },
+  {
+    id: 'metaspace-vs-permgen',
+    title: 'Metaspace Replaced PermGen (Java 8)',
+    group: 'Memory Areas',
+    definition: 'Since Java 8, class metadata lives in Metaspace, native memory outside the heap, replacing the fixed-size PermGen that previously lived inside heap-managed space.',
+    whyItMatters: ['PermGen had a hard default cap that classloader-leak-heavy apps (frameworks that generate proxy classes per request) would blow through constantly; Metaspace grows into native memory by default, trading that OOM for silent host memory pressure if left unbounded'],
+    remember: ['MaxMetaspaceSize is unlimited by default — set it explicitly in containers or a leak degrades the whole host, not just the JVM', 'String pool moved to the heap back in Java 7, separately from this PermGen-to-Metaspace move in Java 8 — don\'t conflate the two'],
+    readMinutes: 2,
+    related: ['custom-classloaders', 'oom-metaspace'],
+  },
+  {
+    id: 'stack-frame-structure',
+    title: 'Stack Frame Structure',
+    group: 'Memory Areas',
+    definition: 'Each method invocation pushes a new frame onto the calling thread\'s JVM stack, holding its local variable array, an operand stack for intermediate computation, and a reference to the runtime constant pool.',
+    whyItMatters: ['Frame size is fixed at compile time from the method\'s bytecode (javac computes max locals and max stack), so per-call stack cost is deterministic — depth, not per-call variability, is what blows the stack'],
+    remember: ['Recursion depth times per-frame size is what -Xss actually bounds, not total variable count', 'Deep call chains through wrapped exceptions or heavily inlined lambdas (many small synthetic frames) can hit the limit faster than the visible code depth suggests'],
+    readMinutes: 2,
+    related: ['jvm-runtime-memory-areas', 'oom-stackoverflow'],
+  },
+
+  // Group: Bytecode & Execution
+  {
+    id: 'class-file-format',
+    title: 'Class File Format & Constant Pool',
+    group: 'Bytecode & Execution',
+    definition: 'javac compiles source into a platform-independent .class file — a magic number, version, and a constant pool of literals/names/type references that every other section (fields, methods, bytecode) refers to by index rather than by embedding values inline.',
+    whyItMatters: ['Because method bytecode references the constant pool by index instead of holding literal values, tools can rewrite bytecode (instrumentation, AOP proxies, bytecode-level mocking libraries) without recompiling from source'],
+    remember: ['Constant pool entries are resolved lazily by default (lazy/late resolution), which is part of why a NoClassDefFoundError can surface long after a class was first loaded, on first actual use of the missing reference'],
+    readMinutes: 2,
+    related: ['bytecode-verification', 'bytecode-stack-machine'],
+  },
+  {
+    id: 'bytecode-verification',
+    title: 'Bytecode Verification',
+    group: 'Bytecode & Execution',
+    definition: 'Before a class is linked, the verifier statically checks its bytecode for type safety and structural soundness — stack depth never underflows/overflows, jumps target valid instructions, operand types match instruction expectations — independent of whether it came from trusted javac output.',
+    whyItMatters: ['Verification is what lets the JVM safely execute bytecode from any source (network-loaded classes, hand-crafted bytecode, other-language compilers) without trusting the compiler that produced it — it is a security boundary, not just a correctness check'],
+    remember: ['Verification failure throws VerifyError at link time, distinct from a compile-time error — you can hand-craft a syntactically valid but type-unsafe class file and it fails only when the JVM loads it'],
+    readMinutes: 2,
+  },
+  {
+    id: 'bytecode-stack-machine',
+    title: 'JVM as a Stack-Based Machine',
+    group: 'Bytecode & Execution',
+    definition: 'JVM bytecode instructions operate on an implicit per-frame operand stack (push operands, execute an instruction, pop results) rather than addressing a fixed set of registers the way native CPU instruction sets do.',
+    whyItMatters: ['Stack-based instructions are compact and trivially platform-independent (no register file to map), at the cost of more instructions per operation than a register machine — the JIT\'s job includes translating this into efficient register-allocated native code'],
+    remember: ['Local variables (the "local variable array") are separate from the operand stack — load/store instructions (iload, istore) move values between them; arithmetic instructions only ever operate on the operand stack'],
+    readMinutes: 1,
+    related: ['class-file-format', 'interpreter-vs-jit-tiered-compilation'],
+  },
+
+  // Group: JIT Compilation
+  {
+    id: 'interpreter-vs-jit-tiered-compilation',
+    title: 'Interpreter & Tiered JIT Compilation',
+    group: 'JIT Compilation',
+    definition: 'HotSpot starts every method in the bytecode interpreter, then promotes "hot" methods through tiered compilation — C1 (client compiler, fast to compile, lighter optimization, adds invocation counters) and eventually C2 (server compiler, slower to compile, aggressively optimized) — based on observed call/loop-back-edge counts.',
+    whyItMatters: ['This is why a fresh JVM process runs measurably slower for the first seconds-to-minutes under load — "warmup" — before hot paths reach C2-compiled steady state, which matters directly for benchmark validity and for short-lived processes/serverless cold starts'],
+    remember: ['Tiers run 0 (interpreter) through 4 (full C2); a method can be C1-compiled, still gathering profile data, before ever reaching C2', '-Xint forces interpreter-only (useful for isolating a JIT-related bug); -Xcomp forces compilation before execution (rarely a good idea outside diagnostics)'],
+    readMinutes: 2,
+    related: ['bytecode-stack-machine', 'jit-deoptimization'],
+  },
+  {
+    id: 'jit-deoptimization',
+    title: 'Deoptimization',
+    group: 'JIT Compilation',
+    definition: 'C2 compiles native code under speculative assumptions gathered from observed behavior (e.g. a call site has only ever seen one concrete type); if runtime behavior later violates an assumption, the JVM discards the compiled code and falls back to the interpreter for that method.',
+    whyItMatters: ['A call site that looked monomorphic during warmup but later becomes megamorphic (many implementing types) can silently fall back to interpreted execution, producing a performance cliff with no code change and no error — a classic hard-to-diagnose production regression'],
+    interviewAngle: {
+      q: 'A method runs fast for an hour then suddenly slows down with no load change and no exception. What JIT-level cause could explain it?',
+      a: 'A previously monomorphic/bimorphic call site started hitting a third implementing type, invalidating the C2 compiler\'s type-specialization assumption and triggering deoptimization back to the interpreter for that method.',
+    },
+    readMinutes: 2,
+    related: ['interpreter-vs-jit-tiered-compilation'],
+  },
+
+  // Group: OOM Diagnostics
+  {
+    id: 'oom-heap-space',
+    title: 'java.lang.OutOfMemoryError: Java heap space',
+    group: 'OOM Diagnostics',
+    definition: 'Thrown when the garbage collector cannot reclaim enough heap to satisfy an allocation even after a full collection, meaning live (reachable) objects genuinely exceed the configured heap — either a real leak or an undersized -Xmx.',
+    whyItMatters: ['Distinguishing "leak" from "undersized" requires a heap dump, not just the stack trace — the error\'s stack trace only shows where the failing allocation happened, not what is holding everything else reachable'],
+    remember: ['GC overhead limit exceeded is a related-but-distinct variant: thrown when the collector is running repeatedly and reclaiming very little (default threshold: >98% of time in GC, <2% heap recovered), which happens before a pool is literally exhausted'],
+    readMinutes: 2,
+    related: ['oom-metaspace'],
+  },
+  {
+    id: 'oom-metaspace',
+    title: 'java.lang.OutOfMemoryError: Metaspace',
+    group: 'OOM Diagnostics',
+    definition: 'Thrown when class metadata exceeds MaxMetaspaceSize (or exhausts native memory if unbounded) — almost always caused by loading far more classes than expected, not by ordinary object allocation.',
+    whyItMatters: ['The dominant real-world cause is classloader leaks from repeated redeploys or dynamic-proxy/bytecode-generation frameworks (CGLIB, dynamic lambdas at scale) creating unbounded numbers of anonymous classes that never become unreachable'],
+    remember: ['A heap dump shows this as an accumulation of ClassLoader instances or duplicate class metadata, not oversized object graphs — different investigation path than a heap-space OOM'],
+    readMinutes: 2,
+    related: ['metaspace-vs-permgen', 'custom-classloaders'],
+  },
+  {
+    id: 'oom-stackoverflow',
+    title: 'StackOverflowError vs OutOfMemoryError',
+    group: 'OOM Diagnostics',
+    definition: 'StackOverflowError (not an OutOfMemoryError) is thrown when a single thread\'s call depth exceeds its -Xss-bounded JVM stack, typically from unbounded or excessively deep recursion.',
+    whyItMatters: ['It is scoped to one thread and its own stack memory, unlike heap/metaspace OOM which reflects shared-area exhaustion — one thread overflowing does not by itself starve other threads or corrupt heap state'],
+    remember: ['It is a distinct Error subtype from OutOfMemoryError entirely (both extend VirtualMachineError) — "stack overflow" is not a flavor of OOM despite the intuitive association'],
+    readMinutes: 1,
+    related: ['stack-frame-structure'],
+  },
+  {
+    id: 'oom-native-thread',
+    title: 'java.lang.OutOfMemoryError: unable to create new native thread',
+    group: 'OOM Diagnostics',
+    definition: 'Thrown when the OS refuses a new native thread creation request — usually because the process has hit the OS\'s max-threads/max-processes limit or exhausted available native (non-heap) address space for thread stacks, not because the Java heap is full.',
+    whyItMatters: ['This is a classic container/cgroup gotcha: a JVM sized generously for heap but running in a container with a low process/thread ulimit, or with a large default -Xss multiplied across an unbounded thread pool, exhausts native capacity long before the heap does'],
+    remember: ['Fix paths are: raise the OS thread/process ulimit, lower -Xss to shrink per-thread native footprint, or bound the thread pool — increasing -Xmx does nothing for this one'],
+    readMinutes: 2,
+    related: ['stack-frame-structure', 'jvm-flags-heap-stack-sizing'],
+  },
+
+  // Group: JVM Flags & Reflection
+  {
+    id: 'jvm-flags-heap-stack-sizing',
+    title: 'Core Sizing Flags: -Xmx / -Xms / -Xss',
+    group: 'JVM Flags & Reflection',
+    definition: '-Xmx sets max heap size, -Xms sets initial heap size, and -Xss sets the per-thread JVM stack size — none of these affect Metaspace, which has its own -XX:MaxMetaspaceSize.',
+    whyItMatters: ['Setting -Xms equal to -Xmx avoids heap-resize pauses as the JVM grows the heap under load, a common production tuning default for latency-sensitive services'],
+    remember: ['Total process memory is heap + metaspace + thread stacks (count x -Xss) + native/off-heap (direct buffers, JIT code cache, GC structures) — sizing only -Xmx and ignoring the rest is the top cause of container OOM-kills despite a "safe" heap setting'],
+    readMinutes: 2,
+    related: ['oom-native-thread', 'oom-heap-space'],
+  },
+  {
+    id: 'reflection-mechanics-performance',
+    title: 'Reflection Mechanics & Cost',
+    group: 'JVM Flags & Reflection',
+    definition: 'Reflective calls (Method.invoke, Field access) go through additional access-checking and argument-boxing/unboxing machinery compared to direct calls, and historically bypassed JIT inlining, though HotSpot generates bytecode-based accessor stubs after a warmup threshold to close most of the gap.',
+    whyItMatters: ['setAccessible(true) skips Java-level access checks (private/protected) but is itself increasingly restricted by the module system (strong encapsulation, JEP 403+), which breaks reflection-heavy frameworks and libraries running against modularized JDK internals'],
+    remember: ['After ~15 invocations (sun.reflect.inflationThreshold default) HotSpot "inflates" a reflective call from a slow native-call path to a generated bytecode accessor — the first several calls are noticeably slower than the steady state'],
+    readMinutes: 2,
+  },
+]
+
+const gcConcepts: ConceptCard[] = [
+// Group: Generational Hypothesis
+  {
+    id: 'generational-hypothesis',
+    title: 'Generational Hypothesis',
+    group: 'Generational Hypothesis',
+    definition: 'Empirical observation that most objects die young, so splitting the heap into generations and collecting the young one far more often than the old one is dramatically cheaper than scanning the whole heap every time.',
+    whyItMatters: [
+      'Justifies why nearly every production collector (Serial, Parallel, G1, and to a lesser extent ZGC/Shenandoah) is generational rather than treating the heap uniformly',
+      'A workload that violates the hypothesis (lots of medium-lived objects) degrades minor-GC efficiency and pushes objects into the old generation prematurely',
+    ],
+    remember: [
+      'Two corollaries: most objects die young; few references cross from old generation to young generation',
+      'The second corollary is what makes the card table / remembered set optimization for minor GC roots correct and cheap',
+    ],
+    diagram: 'flowchart LR\n  Eden --> Survivor\n  Survivor --> Survivor\n  Survivor --> Old',
+    readMinutes: 2,
+  },
+  {
+    id: 'eden-survivor-tenuring',
+    title: 'Eden, Survivor Spaces, and Object Aging',
+    group: 'Generational Hypothesis',
+    definition: 'New objects allocate into Eden; a minor GC copies surviving objects between two Survivor spaces (S0/S1), incrementing an age counter each time, until the object is promoted (tenured) to the old generation.',
+    whyItMatters: [
+      'Copying collection in the young generation is fast precisely because most of Eden is garbage — live objects are the minority being copied, not the majority',
+      'Only one Survivor space is ever "active" at a time; the other is always kept empty as the copy target, which is why sizing SurvivorRatio too small causes premature promotion',
+    ],
+    remember: [
+      'TenuringThreshold (default up to 15, tracked with a 4-bit age field) controls how many survived minor GCs before promotion to old gen',
+      'Dynamic age computation can also promote a batch of objects early if survivor space is nearly full, regardless of the threshold',
+    ],
+    interviewAngle: {
+      q: 'Why does the JVM keep one Survivor space empty at all times?',
+      a: 'It\'s the copy destination for the next minor GC — Eden and the occupied Survivor space are scavenged into it, which is what makes the young-gen collector a cheap copying (not mark-sweep) collector with no fragmentation.',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'minor-major-full-gc',
+    title: 'Minor vs Major vs Full GC',
+    group: 'Generational Hypothesis',
+    definition: 'A minor GC collects only the young generation, a major GC collects the old generation (terminology varies by collector), and a full GC collects the entire heap including metaspace, and is the most expensive of the three.',
+    whyItMatters: [
+      'Interview and production shorthand is often used loosely — knowing that "major" and "full" aren\'t strictly synonymous across collectors (G1 has "mixed" collections that are neither) is a signal of real experience',
+      'A spike in full GC frequency, not minor GC frequency, is usually the symptom worth paging someone over',
+    ],
+    remember: [
+      'Minor GCs are frequent and typically sub-millisecond to tens-of-ms; full GCs can run into seconds on a large heap with a non-concurrent collector',
+      'A full GC is often triggered by old-gen exhaustion, explicit System.gc() calls, or metaspace expansion failure',
+    ],
+    readMinutes: 1,
+  },
+
+  // Group: Collector Algorithms
+  {
+    id: 'serial-collector',
+    title: 'Serial Collector',
+    group: 'Collector Algorithms',
+    definition: 'A single-threaded, stop-the-world collector (mark-copy for young gen, mark-sweep-compact for old gen) intended for small heaps or single-core environments where collector overhead itself matters more than pause time.',
+    whyItMatters: [
+      'Still the right default for constrained containers or CLI tools where a background GC thread pool would waste resources',
+      'Enabled with -XX:+UseSerialGC; useful as a baseline when isolating whether a performance issue is collector-related at all',
+    ],
+    readMinutes: 1,
+  },
+  {
+    id: 'parallel-collector',
+    title: 'Parallel (Throughput) Collector',
+    group: 'Collector Algorithms',
+    definition: 'Uses multiple threads for both young and old generation collection but still stops all application threads during collection, optimizing for maximum throughput rather than pause time.',
+    whyItMatters: [
+      'Was the default collector through Java 8; still the right choice for batch jobs where total throughput matters more than individual pause latency',
+      'Tuned via -XX:MaxGCPauseMillis (a goal, not a guarantee) and -XX:GCTimeRatio to trade throughput against pause time',
+    ],
+    remember: ['-XX:+UseParallelGC; old gen uses parallel mark-sweep-compact, unlike Serial\'s single-threaded version'],
+    readMinutes: 1,
+  },
+  {
+    id: 'cms-collector-deprecated',
+    title: 'CMS Collector (Deprecated/Removed)',
+    group: 'Collector Algorithms',
+    definition: 'Concurrent Mark Sweep collected the old generation concurrently with application threads to minimize pause time, but never compacted, which caused fragmentation and unpredictable "concurrent mode failure" full-GC fallback.',
+    whyItMatters: [
+      'Deprecated in Java 9 (JEP 291) and removed in Java 14 (JEP 363) in favor of G1 as the default, then ZGC/Shenandoah for stricter latency needs — a senior engineer should know why, not just that it happened',
+      'Concurrent mode failure — CMS unable to keep up with allocation rate and falling back to a full stop-the-world collection with the slower non-compacting old-gen sweep — was the operational nightmare that killed it',
+    ],
+    remember: [
+      'Fragmentation without compaction eventually forces a full GC anyway, defeating the low-pause goal it was designed for',
+      'G1 was designed specifically to replace CMS by adding region-based incremental compaction while remaining mostly concurrent',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'g1-region-based-collection',
+    title: 'G1: Region-Based Collection',
+    group: 'Collector Algorithms',
+    definition: 'G1 divides the heap into many equal-sized regions (not contiguous young/old spaces) and dynamically assigns each region a role (Eden, Survivor, Old, Humongous), collecting the regions with the most garbage first to hit a pause-time target.',
+    whyItMatters: [
+      'Region-based layout is what enables G1 to do incremental compaction and avoid CMS\'s fragmentation problem while still being mostly concurrent for old-gen marking',
+      'Has been the default collector since Java 9, so understanding its mechanics is table stakes for a senior JVM conversation',
+    ],
+    remember: [
+      'Humongous objects (larger than 50% of a region size) get their own contiguous set of regions and bypass normal young-gen allocation, which can fragment the heap and trigger extra full GCs if frequent',
+      '-XX:MaxGCPauseMillis is a soft target G1 uses to choose how many regions to collect per cycle, not a hard cap',
+    ],
+    diagram: 'flowchart LR\n  Region1[Eden Region] --> Region2[Survivor Region]\n  Region2 --> Region3[Old Region]\n  Region4[Humongous Region] --> Region3',
+    readMinutes: 2,
+  },
+  {
+    id: 'g1-mixed-collections-rsets',
+    title: 'G1 Mixed Collections and Remembered Sets',
+    group: 'Collector Algorithms',
+    definition: 'After a concurrent marking cycle identifies mostly-garbage old regions, G1 runs mixed collections that reclaim young regions plus a subset of those old regions in the same pause, using per-region remembered sets to avoid scanning the whole heap for cross-region references.',
+    whyItMatters: [
+      'Remembered sets (backed by a card table) are what let G1 collect a subset of regions without scanning every other region for incoming pointers — this is the same generational "old rarely points to young" trade CMS and Parallel also exploit, just region-granular',
+      'A workload with very high cross-region mutation rate increases remembered-set maintenance cost (write barriers), which is a real throughput tax that shows up in GC logs as increased "Update RS" time',
+    ],
+    remember: [
+      'Concurrent marking cycle triggers based on old-gen occupancy (-XX:InitiatingHeapOccupancyPercent, default 45%)',
+      'Mixed collections continue for several cycles after marking, gradually reclaiming the identified old regions rather than all at once',
+    ],
+    related: ['g1-region-based-collection'],
+    readMinutes: 2,
+  },
+  {
+    id: 'stop-the-world-pauses',
+    title: 'Stop-the-World Pauses',
+    group: 'Collector Algorithms',
+    definition: 'A phase where every application thread is suspended at a safepoint so the collector can move or reclaim objects without a mutator thread observing or corrupting an inconsistent heap state.',
+    whyItMatters: [
+      'Root scanning (stack frames, thread locals, JNI handles) and object relocation/compaction fundamentally require the heap to be consistent, so even "concurrent" collectors keep a few short STW phases (initial mark, remark)',
+      'A thread that takes a long time to reach a safepoint (e.g., a long counted loop the JIT hasn\'t inserted a safepoint poll into) delays the entire pause for every other thread — "safepoint bias"',
+    ],
+    remember: ['"Concurrent" collectors are not pauseless — they minimize STW time, not eliminate it entirely (except ZGC/Shenandoah\'s relocation, which is also concurrent)'],
+    readMinutes: 1,
+  },
+
+  // Group: Modern Low-Pause Collectors
+  {
+    id: 'zgc-concurrent-collector',
+    title: 'ZGC',
+    group: 'Modern Low-Pause Collectors',
+    definition: 'A scalable, mostly-concurrent collector using colored pointers (metadata bits stored in the unused upper bits of a 64-bit reference) and load barriers to perform marking, relocation, and reference remapping without stopping application threads, targeting sub-millisecond pauses regardless of heap size.',
+    whyItMatters: [
+      'Colored pointers let ZGC know an object\'s state (marked, relocating, remapped) by reading the pointer itself, avoiding a separate metadata lookup — this is the core trick that makes concurrent relocation feasible',
+      'Pause times are effectively decoupled from heap size and live-set size, which is the pitch for very large heaps (hundreds of GB+) where G1\'s pauses would scale up',
+      'Production-ready without experimental flags since Java 15; generational ZGC (default mode since Java 21) added a young generation to reduce CPU overhead on allocation-heavy workloads',
+    ],
+    remember: [
+      'Trades some throughput and memory overhead (colored pointer bits limit addressable heap on older releases, load barrier cost on every reference read) for pause-time predictability',
+      'Read/load barriers intercept reference loads to self-heal a stale pointer to a relocated object on the fly, called "loaded barrier remapping"',
+    ],
+    related: ['shenandoah-collector'],
+    readMinutes: 2,
+  },
+  {
+    id: 'shenandoah-collector',
+    title: 'Shenandoah',
+    group: 'Modern Low-Pause Collectors',
+    definition: 'A low-pause collector (originally Red Hat, OpenJDK since 12) using Brooks forwarding pointers — an extra indirection word per object — so it can relocate objects concurrently with application threads without ZGC\'s pointer-coloring approach.',
+    whyItMatters: [
+      'Brooks pointers add a per-object memory overhead (one extra word) and an indirection on every access, which is a different cost model than ZGC\'s colored pointers — useful to contrast when asked "ZGC vs Shenandoah"',
+      'Like ZGC, decouples pause time from heap size, but historically supported a wider range of JDK versions (backported to 8 and 11 by Red Hat) making it the pragmatic low-pause choice on older LTS deployments',
+    ],
+    remember: ['Region-based like G1, but does concurrent compaction instead of G1\'s STW-during-mixed-collection compaction'],
+    related: ['zgc-concurrent-collector'],
+    readMinutes: 2,
+  },
+  {
+    id: 'choosing-a-collector',
+    title: 'Choosing a Collector for a Workload',
+    group: 'Modern Low-Pause Collectors',
+    definition: 'Collector choice is a throughput-vs-latency trade: Parallel for batch/throughput jobs tolerant of pauses, G1 as a balanced default for most services, ZGC/Shenandoah when p99/p999 pause latency is the binding constraint (trading, real-time bidding, large heaps).',
+    whyItMatters: [
+      'Picking ZGC for a batch ETL job wastes the CPU overhead of load barriers and concurrent threads for a latency guarantee nobody needs; picking Parallel for a latency-sensitive API causes SLA-violating multi-second pauses under load',
+      'Heap size is a factor too — G1\'s pause time grows with live-set size on very large heaps, which is exactly the scenario ZGC/Shenandoah were built for',
+    ],
+    remember: ['A senior answer names the trade-off axis (throughput vs pause latency vs heap size), not just "use G1, it\'s the default"'],
+    readMinutes: 1,
+  },
+
+  // Group: References & Leaks
+  {
+    id: 'weak-soft-phantom-references',
+    title: 'Weak, Soft, and Phantom References',
+    group: 'References & Leaks',
+    definition: 'The three non-strong reference types trade off differently against GC: SoftReference is cleared only under memory pressure (good for caches), WeakReference is cleared at the next GC cycle once unreachable via strong refs (good for canonicalizing maps), and PhantomReference is never usable to resurrect the object and exists purely to get post-finalization cleanup notification via a ReferenceQueue.',
+    whyItMatters: [
+      'PhantomReference.get() always returns null by design — the only signal it gives is presence in a ReferenceQueue, which is exactly what makes it safe for cleanup logic (no risk of resurrecting a half-finalized object)',
+      'WeakHashMap and ThreadLocal\'s internal ThreadLocalMap both key on WeakReference, which is precisely why ThreadLocal leaks happen when the value is strongly referenced elsewhere despite the key being weak',
+    ],
+    remember: [
+      'Soft references are cleared "as needed" before an OutOfMemoryError, in roughly LRU order across all soft refs — never rely on a specific eviction point',
+      'Cleaner/PhantomReference + ReferenceQueue is the modern replacement for finalize(), used internally by java.nio direct buffers to free native memory',
+    ],
+    interviewAngle: {
+      q: 'Why does PhantomReference.get() always return null?',
+      a: 'By the time it\'s enqueued, the object is unreachable and finalization (if any) has already run — allowing get() to return it would let cleanup code accidentally resurrect a partially-finalized object, so the API forbids it entirely.',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'finalization-deprecated',
+    title: 'Finalization (Deprecated)',
+    group: 'References & Leaks',
+    definition: 'Object.finalize() was deprecated for removal in Java 9+ (JEP 421 formally deprecated it in 18) because it runs on an unpredictable GC-controlled thread, can resurrect objects, silently swallows exceptions, and can delay reclamation by requiring two GC cycles.',
+    whyItMatters: [
+      'An object with a finalizer isn\'t reclaimed in the GC cycle where it becomes unreachable — it\'s queued for finalization, finalized on a separate thread, then only reclaimed on a subsequent GC pass, which is a real and surprising latency/memory cost',
+      'A slow or backed-up finalizer thread can cause unbounded memory growth even though objects are technically unreachable — a classic and hard-to-diagnose leak',
+    ],
+    remember: ['Replacement is try-with-resources / AutoCloseable for deterministic cleanup, or Cleaner (PhantomReference-based) for GC-triggered native resource cleanup'],
+    related: ['weak-soft-phantom-references'],
+    readMinutes: 1,
+  },
+  {
+    id: 'java-memory-leaks',
+    title: 'Memory Leaks Despite GC',
+    group: 'References & Leaks',
+    definition: 'GC only reclaims unreachable objects — a "leak" in Java is an object that stays reachable long after it\'s logically dead, most commonly via static collections that only grow, listener/callback registrations never removed, ThreadLocal values retained on pooled threads, or a classloader kept alive by one lingering reference from an object it loaded.',
+    whyItMatters: [
+      'Classloader leaks are the classic app-server/hot-redeploy failure: if any object created by a webapp\'s classloader (a thread, a static field in a shared library, a JDBC driver registered in DriverManager) survives redeploy, the entire old classloader and every class+static it loaded stays retained',
+      'ThreadLocal leaks are specifically dangerous in thread-pooled environments (app servers, ExecutorService) because the thread — and its ThreadLocalMap — outlives the logical request, keeping the value alive indefinitely unless remove() is called',
+    ],
+    remember: [
+      'Static fields are GC roots for as long as their class is loaded — an ever-growing static Map/List is the single most common interview example',
+      'Listener/observer leaks: registering with a long-lived subject (e.g. a Swing component or event bus) without unregistering keeps the listener, and everything it closes over, reachable',
+    ],
+    related: ['weak-soft-phantom-references'],
+    readMinutes: 2,
+  },
+
+  // Group: Tuning & Diagnostics
+  {
+    id: 'gc-tuning-flags',
+    title: 'Core GC Tuning Flags',
+    group: 'Tuning & Diagnostics',
+    definition: 'Beyond selecting a collector (-XX:+UseG1GC etc.), the highest-leverage tuning flags are heap sizing (-Xms/-Xmx, ideally equal to avoid resize pauses), pause-time goals (-XX:MaxGCPauseMillis), and generation ratios (-XX:NewRatio, -XX:SurvivorRatio).',
+    whyItMatters: [
+      'Setting -Xms below -Xmx lets the heap resize at runtime, and heap expansion itself is a stop-the-world operation — fixing them equal in latency-sensitive services avoids surprise pauses during warm-up',
+      'A too-small young generation causes premature promotion (short-lived objects tenured before dying), inflating old-gen occupancy and triggering more expensive major/mixed GCs',
+    ],
+    remember: ['MaxGCPauseMillis is a target the collector tunes region/generation sizing toward, not an enforced ceiling — an aggressive target it can\'t hit just means more frequent, not shorter, collections'],
+    readMinutes: 1,
+  },
+  {
+    id: 'gc-logging-interpretation',
+    title: 'GC Logging and Interpretation',
+    group: 'Tuning & Diagnostics',
+    definition: 'Unified JVM logging (-Xlog:gc*, standard since Java 9) reports pause type, cause, before/after occupancy per region type, and pause duration for every collection — the primary tool for diagnosing whether GC is a throughput or latency problem in production.',
+    whyItMatters: [
+      'Distinguishing "Pause Young (Normal)" from "Pause Young (Concurrent Start)" from "Pause Full" in G1 logs tells you immediately whether you\'re looking at routine collection, the start of a marking cycle, or the expensive fallback path worth investigating',
+      'A rising "before" occupancy trend across successive GC logs, even after collection, is the textbook signature of a slow leak — a healthy heap saw-tooths back down close to its post-startup baseline',
+    ],
+    remember: ['-Xlog:gc*:file=gc.log:time,uptime,level,tags is a reasonable production baseline; GCViewer/GCEasy can visualize the log instead of eyeballing it'],
+    readMinutes: 1,
+  },
+]
+
+const performanceConcepts: ConceptCard[] = [
+// Group: JIT Optimization
+  {
+    id: 'jit-inlining',
+    title: 'Method Inlining',
+    group: 'JIT Optimization',
+    definition: 'The JIT replaces a call to a small, frequently-called method with the method body directly, eliminating call overhead and opening the door to further optimizations on the merged code.',
+    whyItMatters: [
+      'Inlining is the optimization that enables most others — escape analysis, dead code elimination, and constant folding all work better across an inlined boundary than across a real call',
+      'Megamorphic call sites (3+ receiver types at runtime) defeat inlining because the JIT cannot pick one target to inline; this silently degrades hot polymorphic dispatch',
+    ],
+    remember: [
+      'Default inlining size cap is small (~35 bytecodes for hot methods via -XX:MaxInlineSize, ~325 for "hot" trivial-frequency methods) — large helper methods on a hot path can get excluded',
+      'Getters/setters and small private methods are the classic beneficiaries; deep call chains of large methods are not',
+    ],
+    interviewAngle: {
+      q: 'Why can adding an interface with 3+ implementations on a hot path make code slower even though the logic is unchanged?',
+      a: 'It turns a monomorphic or bimorphic call site into a megamorphic one; the JIT can no longer inline a single likely target and falls back to a virtual dispatch (or an inline cache with a slow-path check), losing inlining and everything it would have unlocked downstream.',
+    },
+    readMinutes: 2,
+    related: ['escape-analysis-scalar-replacement', 'polymorphism-inlining-cost'],
+  },
+  {
+    id: 'polymorphism-inlining-cost',
+    title: 'Monomorphic vs Megamorphic Call Sites',
+    group: 'JIT Optimization',
+    definition: 'The JIT tracks how many distinct concrete types have been seen at a call site and only speculatively inlines/devirtualizes when there are one (monomorphic) or two (bimorphic) — three or more (megamorphic) forces a real virtual dispatch every time.',
+    whyItMatters: [
+      'This is invisible in code review — two functionally identical call sites can have wildly different steady-state throughput purely based on how many implementations flow through them at runtime',
+    ],
+    remember: [
+      'Inline caches degrade: monomorphic (direct jump) -> bimorphic (two-way check) -> megamorphic (full vtable lookup, no inlining)',
+      'Mixing a hot generic dispatch loop (e.g. a visitor over many small types) is a classic way to accidentally go megamorphic',
+    ],
+    readMinutes: 2,
+    related: ['jit-inlining'],
+  },
+  {
+    id: 'escape-analysis-scalar-replacement',
+    title: 'Escape Analysis & Scalar Replacement',
+    group: 'JIT Optimization',
+    definition: 'The JIT proves an object never "escapes" the method or thread that creates it, then avoids allocating it on the heap at all — either eliminating it entirely or splitting its fields into scalar local variables/registers.',
+    whyItMatters: [
+      'This is the mechanism that makes "just wrap it in a small object for readability" often free in hot loops — a short-lived point-in-a-method object can vanish entirely from the compiled code',
+      'It only fires after the method is hot enough to reach C2 (or C1 with tiering) and the escape proof holds; it silently stops working the moment the object is passed somewhere the compiler can\'t fully track (e.g. stored into a field, passed to a non-inlined call, or used across a lock)',
+    ],
+    remember: [
+      'Escaping conditions: stored to a static/instance field, returned, passed to a method that isn\'t inlined, or thrown as an exception',
+      'Scalar replacement can also let the JIT eliminate the memory barrier/monitor overhead of an object whose lock is provably never contended (lock elision) — related but distinct from escape analysis itself',
+      'Never rely on it for correctness or as a benchmarked guarantee — it\'s a best-effort optimization, not a language feature',
+    ],
+    interviewAngle: {
+      q: 'Does escape analysis mean I should stop worrying about small helper object allocation in hot loops?',
+      a: 'No — treat it as a possible bonus, not a guarantee. It requires the code to be JIT-warm, the object to provably not escape, and often depends on other inlining succeeding first; small changes (a debug log capturing the reference, a call that stops getting inlined) can silently disable it.',
+    },
+    readMinutes: 3,
+    related: ['jit-inlining', 'object-allocation-cost'],
+  },
+  {
+    id: 'loop-optimizations',
+    title: 'Loop Unrolling & Dead Code Elimination',
+    group: 'JIT Optimization',
+    definition: 'C2 duplicates loop bodies to reduce per-iteration branch/counter overhead (unrolling) and removes computations whose results are provably never observed (dead code elimination), both conditioned on the loop being hot and its bounds/side effects being analyzable.',
+    whyItMatters: [
+      'Dead code elimination is the single biggest trap in naive benchmarking — if a loop\'s result is never used, the JIT can legally delete the entire loop',
+    ],
+    remember: [
+      'Unrolling trades code size for fewer branch mispredictions and better instruction-level parallelism; JIT decides the unroll factor, you don\'t control it directly',
+      'DCE requires proving no observable side effect — an unused local is deleted, but a loop with a volatile write or I/O call is not',
+    ],
+    readMinutes: 2,
+    related: ['jmh-benchmarking', 'jmh-blackhole'],
+  },
+  {
+    id: 'jit-warmup-tiered-compilation',
+    title: 'Warm-up and Tiered Compilation',
+    group: 'JIT Optimization',
+    definition: 'New code starts in the interpreter (or quick, lightly-optimized C1), and only after a method crosses invocation/back-edge thresholds does the JVM recompile it with the heavily-optimizing C2 — meaning identical code is measurably slower for the first tens of thousands of calls than at steady state.',
+    whyItMatters: [
+      'This is why the same request can take 50ms cold and 2ms once "warm," and why short-lived processes (CLI tools, some serverless invocations) may never reach C2 for their hot paths at all',
+      'Deoptimization can happen even after C2 compilation — if a speculative assumption (e.g. a monomorphic call site) is invalidated by a newly-loaded class, the method is discarded and falls back to the interpreter until it re-warms',
+    ],
+    remember: [
+      'Tiers roughly: 0 interpreter, 1-3 C1 (with increasing profiling), 4 C2 — tiered compilation (default on) lets code get fast quickly via C1 while C2 compiles in the background',
+      '-XX:+PrintCompilation and JFR compilation events show when/why a method (re)compiles or deoptimizes',
+    ],
+    interviewAngle: {
+      q: 'A batch job that processes 10 million records is slow for the first 2 seconds then speeds up dramatically. Is that a bug?',
+      a: 'No — that\'s expected JIT warm-up: the hot loop starts interpreted/C1-compiled and only gets C2-optimized once it crosses the invocation threshold. It only becomes a problem if the workload is dominated by short-lived processes that never get to amortize that cost.',
+    },
+    readMinutes: 2,
+    related: ['jmh-benchmarking'],
+  },
+
+  // Group: Benchmarking Correctly
+  {
+    id: 'naive-benchmark-pitfalls',
+    title: 'Why System.currentTimeMillis() Loops Lie',
+    group: 'Benchmarking Correctly',
+    definition: 'A hand-rolled "time a loop with currentTimeMillis" benchmark conflates interpreter time with JIT-compiled time, can have its entire measured code deleted by dead code elimination, and is too coarse-grained (millisecond resolution) to measure nanosecond-to-microsecond operations.',
+    whyItMatters: [
+      'This is the single most common performance-interview trap — engineers ship benchmarks that "prove" an optimization works when they actually measured warm-up noise or nothing at all',
+    ],
+    remember: [
+      'Three failure modes to name: no warm-up (measuring interpreted code), dead code elimination (result unused, so the JIT deletes the work), and constant folding (JIT computes a loop-invariant result once and reuses it, when it should be recomputed per input)',
+      'System.nanoTime() fixes resolution but fixes none of the JIT-correctness problems',
+    ],
+    readMinutes: 2,
+    related: ['jmh-benchmarking', 'jmh-blackhole'],
+  },
+  {
+    id: 'jmh-benchmarking',
+    title: 'JMH (Java Microbenchmark Harness)',
+    group: 'Benchmarking Correctly',
+    definition: 'An OpenJDK-maintained benchmarking framework that runs code in a forked JVM with explicit warm-up iterations, isolates measurement from JIT noise, and provides annotations to prevent the compiler from optimizing away the very code being measured.',
+    whyItMatters: [
+      'It\'s the accepted answer to "how do you correctly benchmark Java code" in a senior interview — naming it without knowing why naive timing fails is a red flag',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.NANOSECONDS)
+@State(Scope.Thread)
+@Warmup(iterations = 5)
+@Measurement(iterations = 5)
+@Fork(1)
+public class MyBenchmark {
+    @Benchmark
+    public int addTwo(MyState state) {
+        return state.a + state.b;
+    }
+}`,
+      },
+      note: 'State fields prevent constant folding; @Fork runs in a fresh JVM to avoid cross-benchmark JIT pollution.',
+    },
+    remember: [
+      '@Fork isolates each benchmark in its own JVM process — without it, profile pollution from one benchmark can bias JIT decisions in the next',
+      '@State(Scope.Thread/Benchmark/Group) controls whether fields are shared or per-thread, which matters for both correctness and contention modeling',
+      'Modes: Throughput, AverageTime, SampleTime, SingleShotTime — pick based on whether you care about ops/sec or per-call latency distribution',
+    ],
+    readMinutes: 3,
+    related: ['naive-benchmark-pitfalls', 'jmh-blackhole'],
+  },
+  {
+    id: 'jmh-blackhole',
+    title: 'JMH Blackhole & Dead Code Elimination Defense',
+    group: 'Benchmarking Correctly',
+    definition: 'Blackhole.consume() marks a computed value as observably used without the overhead of a real side effect, preventing the JIT from proving the result is dead and eliminating the code under test; JMH also flags @Benchmark methods returning a value as automatically consumed.',
+    whyItMatters: [
+      'Without it (or a returned value), a benchmark loop computing an unused result can be optimized down to literally nothing, reporting impossibly fast numbers',
+    ],
+    remember: [
+      'Constant folding is the other half of the trap — if every input to the code under test is a compile-time constant, C2 can precompute the result once; JMH @State fields defeat this by keeping inputs runtime-opaque',
+      'Prefer returning the value from @Benchmark over calling Blackhole.consume() manually when there\'s a single result — simpler and JMH handles it',
+    ],
+    readMinutes: 2,
+    related: ['jmh-benchmarking', 'loop-optimizations'],
+  },
+
+  // Group: Profiling
+  {
+    id: 'sampling-vs-instrumenting-profilers',
+    title: 'Sampling vs Instrumenting Profilers',
+    group: 'Profiling',
+    definition: 'Sampling profilers periodically snapshot thread stacks (low overhead, statistical, can miss short-lived methods) while instrumenting profilers inject bytecode at every method entry/exit (exact call counts, but overhead is often large enough to change the very hot path being measured).',
+    whyItMatters: [
+      'Instrumenting profilers routinely produce misleading results in practice — a method that looks expensive may just be one the instrumentation overhead hit hardest; production profiling almost always means sampling',
+    ],
+    remember: [
+      'Classic safepoint bias: older JVM sampling profilers could only sample at JVM safepoints, systematically over- or under-representing certain code (e.g. tight loops without safepoint polls); async-profiler exists specifically to avoid this',
+      'Sampling frequency is a tradeoff — too low misses short hot spots, too high adds its own overhead',
+    ],
+    readMinutes: 2,
+    related: ['async-profiler-flame-graphs', 'jfr'],
+  },
+  {
+    id: 'async-profiler-flame-graphs',
+    title: 'async-profiler & Flame Graphs',
+    group: 'Profiling',
+    definition: 'async-profiler is a low-overhead sampling profiler that uses AsyncGetCallTrace/perf_events to sample both Java and native (JNI, JVM-internal) frames without safepoint bias, commonly visualized as a flame graph where stack depth is height and width is relative time spent.',
+    whyItMatters: [
+      'It can profile CPU, allocation (via TLAB sampling), lock contention, and wall-clock time — allocation profiling in particular is how you find the actual allocation hot spot instead of guessing from code review',
+    ],
+    remember: [
+      'Flame graph width = proportion of samples with that frame on the stack, not call count or absolute time — a wide frame near the top means "expensive leaf," wide near the bottom means "commonly on the call path"',
+      'Differential/diff flame graphs (before vs after a change) are the fast way to confirm an optimization actually moved the needle rather than just moving cost around',
+    ],
+    readMinutes: 2,
+    related: ['sampling-vs-instrumenting-profilers', 'jfr'],
+  },
+  {
+    id: 'jfr',
+    title: 'JFR (Java Flight Recorder)',
+    group: 'Profiling',
+    definition: 'A production-safe, low-overhead (typically well under 1-2%) event-recording facility built into the JVM that captures GC pauses, allocation, lock contention, thread state, and method sampling into a single timeline, viewable in JDK Mission Control.',
+    whyItMatters: [
+      'Because overhead is low enough to leave running continuously in production, it\'s often the only profiling data available for an incident that already happened — attaching an external profiler after the fact is too late',
+      'It correlates JIT compilation events, GC pauses, and CPU sampling on one timeline, which is what lets you say "this latency spike coincided with a GC pause" instead of guessing',
+    ],
+    remember: [
+      'Enable with -XX:+FlightRecorder -XX:StartFlightRecording=... (built into the JDK since 11, backported to 8u); no extra agent needed',
+      'Continuous/circular recordings ("always-on JFR") are cheap enough to keep on as an insurance policy, then dumped on demand when something goes wrong',
+    ],
+    readMinutes: 2,
+    related: ['async-profiler-flame-graphs', 'gc-pause-tail-latency'],
+  },
+
+  // Group: Allocation & Memory Patterns
+  {
+    id: 'object-allocation-cost',
+    title: 'Object Allocation Cost & TLABs',
+    group: 'Allocation & Memory Patterns',
+    definition: 'A typical JVM allocation is a bump-the-pointer operation inside a per-thread Thread-Local Allocation Buffer (TLAB), making it cheap compared to malloc — but the real cost of excessive allocation shows up downstream as increased GC frequency and cache pressure, not at the allocation site itself.',
+    whyItMatters: [
+      'This reframes the classic "avoid object allocation" advice — the allocation itself is fast; the problem is the collection work and cache-locality cost it generates later, which is why allocation rate (MB/s), not object count, is the metric that predicts GC impact',
+    ],
+    remember: [
+      'TLAB exhaustion forces a slow-path allocation (synchronized, from shared eden space) — high allocation rate under contention can surface as this directly',
+      'Escape analysis / scalar replacement can eliminate the cost entirely for provably non-escaping objects — see that card',
+    ],
+    readMinutes: 2,
+    related: ['escape-analysis-scalar-replacement', 'boxing-unboxing-cost', 'gc-pause-tail-latency'],
+  },
+  {
+    id: 'boxing-unboxing-cost',
+    title: 'Boxing/Unboxing & Primitive Collection Cost',
+    group: 'Allocation & Memory Patterns',
+    definition: 'Autoboxing allocates a wrapper object per value outside the small cached range (Integer -128..127 by default), and generic collections of boxed primitives pay both that per-element allocation cost and pointer-chasing cache-miss cost that a primitive array avoids entirely.',
+    whyItMatters: [
+      'A List<Integer> summing loop is not just "a bit slower" than an int[] loop — it\'s allocating N objects, each requiring a heap dereference to read, defeating CPU cache locality that a contiguous primitive array gets for free',
+    ],
+    remember: [
+      'Integer.valueOf() caching only covers -128 to 127 (tunable via -XX:AutoBoxCacheMax for Integer) — code that looks identical behaves differently just based on the value range in production data',
+      'Primitive-specialized libraries (Eclipse Collections, fastutil, Trove) exist specifically to avoid this in allocation- or throughput-sensitive code',
+    ],
+    interviewAngle: {
+      q: 'Why might switching a hot numeric loop from List<Integer> to int[] give a bigger speedup than expected from "just removing boxing"?',
+      a: 'Boxing removal eliminates the per-element allocation, but the bigger win is often cache locality — a primitive array is contiguous memory the CPU prefetcher handles well, while a List<Integer> is an array of pointers to scattered heap objects, each access a potential cache miss.',
+    },
+    readMinutes: 2,
+    related: ['object-allocation-cost', 'cpu-cache-locality'],
+  },
+  {
+    id: 'cpu-cache-locality',
+    title: 'CPU Cache Locality in Java',
+    group: 'Allocation & Memory Patterns',
+    definition: 'Java\'s object-per-heap-allocation model (unlike C-style structs-in-arrays) means related data is often scattered across the heap, so iteration patterns that look equivalent in complexity can differ by multiples in wall-clock time based purely on cache-line locality.',
+    whyItMatters: [
+      'This is why array-of-structs-style modeling (e.g. parallel primitive arrays, or libraries offering off-heap struct layouts) sometimes beats "clean" object-oriented modeling by a large margin in throughput-critical code — it\'s a real tradeoff against readability, not a free win',
+    ],
+    remember: [
+      'Row-major iteration over a 2D array (int[][]) is dramatically faster than column-major because it follows cache-line order — a classic, testable example',
+      'Object header overhead (12-16 bytes per object) plus alignment padding also reduces effective cache-line usage for small objects',
+    ],
+    readMinutes: 2,
+    related: ['false-sharing', 'boxing-unboxing-cost'],
+  },
+  {
+    id: 'false-sharing',
+    title: 'False Sharing / Cache Line Contention',
+    group: 'Allocation & Memory Patterns',
+    definition: 'When two independent variables written by different threads happen to land on the same 64-byte CPU cache line, hardware cache-coherency traffic forces the line to bounce between cores on every write, even though the threads never touch each other\'s data — this can be as slow as real contention.',
+    whyItMatters: [
+      'It\'s invisible in code review — two unrelated fields being adjacent in memory (e.g. two counters in neighboring array slots, or two fields in the same object updated by different threads) is enough to tank throughput on multi-core hardware',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `class Counters {
+    @jdk.internal.vm.annotation.Contended
+    volatile long counterA;
+    @jdk.internal.vm.annotation.Contended
+    volatile long counterB;
+}`,
+      },
+      note: '@Contended (needs -XX:-RestrictContended outside java.* on some JDKs) pads fields onto separate cache lines to eliminate the bounce.',
+    },
+    remember: [
+      'Classic reproduction: an array of per-thread counters where each thread updates its own slot — logically independent, physically adjacent, and heavily contended',
+      'LongAdder\'s internal striping deliberately pads cells to avoid this, which is part of why it beats AtomicLong under contention',
+    ],
+    readMinutes: 3,
+    related: ['cpu-cache-locality'],
+  },
+  {
+    id: 'off-heap-direct-buffers',
+    title: 'Off-Heap Memory & Direct ByteBuffers',
+    group: 'Allocation & Memory Patterns',
+    definition: 'DirectByteBuffer allocates memory outside the managed heap, avoiding a JVM-to-native copy for I/O operations and avoiding GC scanning of that memory entirely — at the cost of manual lifecycle management and a separate, easy-to-exhaust memory limit.',
+    whyItMatters: [
+      'It\'s the standard technique for high-throughput I/O (NIO channels, network buffers, memory-mapped files) where copying gigabytes through the managed heap would both cost CPU and inflate GC scan time',
+    ],
+    remember: [
+      'Direct buffer allocation/deallocation is comparatively expensive and historically relied on GC-triggered Cleaner/PhantomReference cleanup — pooling direct buffers rather than allocating per-request is the norm',
+      'Sized separately via -XX:MaxDirectMemorySize; exhausting it throws OutOfMemoryError: Direct buffer memory even while heap usage looks fine, a common on-call confusion',
+    ],
+    readMinutes: 2,
+    related: ['object-allocation-cost'],
+  },
+
+  // Group: Latency Engineering
+  {
+    id: 'throughput-vs-latency',
+    title: 'Throughput vs Latency Tradeoffs',
+    group: 'Latency Engineering',
+    definition: 'Optimizing for maximum operations-per-second and optimizing for predictable per-operation response time are frequently in tension — batching, larger buffers, and background compaction all improve throughput while adding variance that hurts tail latency.',
+    whyItMatters: [
+      'A senior engineer needs to state which one a given change actually targets — a "performance improvement" that raises average throughput while worsening p99 latency can be a net loss for a user-facing service even though every dashboard-friendly average looks better',
+    ],
+    remember: [
+      'JMH\'s Throughput mode and SampleTime/latency-percentile mode are answering genuinely different questions — pick the mode that matches what production actually needs',
+      'GC collector choice is the textbook example: throughput-oriented collectors accept longer occasional pauses for less total CPU overhead; low-pause collectors trade some throughput for latency predictability (see gc subtopic)',
+    ],
+    readMinutes: 2,
+    related: ['gc-pause-tail-latency'],
+  },
+  {
+    id: 'gc-pause-tail-latency',
+    title: 'GC Pause Impact on Tail Latency',
+    group: 'Latency Engineering',
+    definition: 'Even a "fast" collector\'s occasional stop-the-world pause directly shows up as a latency spike for whatever requests happen to be in flight at that moment, so p99/p999 latency is often dominated by GC behavior rather than by average-case application code.',
+    whyItMatters: [
+      'This is why allocation rate reduction matters even on modern low-pause collectors — fewer/smaller collections means fewer opportunities for a pause to land under an SLA-sensitive request, independent of which collector algorithm is chosen (algorithm detail is the gc subtopic\'s territory)',
+    ],
+    remember: [
+      'Correlate GC pause timestamps against a latency histogram (JFR makes this direct) before assuming a tail-latency spike is application code rather than collector-caused',
+      'Reducing allocation rate is a lever every collector benefits from; picking a different collector is a separate, complementary lever',
+    ],
+    readMinutes: 2,
+    related: ['throughput-vs-latency', 'jfr'],
+  },
+  {
+    id: 'method-inlining-limits-warmup-interaction',
+    title: 'Warm-up Cost in Latency-Sensitive Deploys',
+    group: 'Latency Engineering',
+    definition: 'A freshly-started or newly-deployed JVM instance serves its first requests through interpreted/C1 code before JIT warm-up completes, so rolling deploys and autoscaling that route production traffic to a cold instance immediately create a burst of elevated latency.',
+    whyItMatters: [
+      'This is a real production pattern, not a micro-benchmarking footnote — it drives practices like health-check delay/warm-up traffic replay before adding an instance to a load balancer, and it\'s a reason serverless cold starts are particularly costly for JVM-based functions',
+    ],
+    remember: [
+      'AppCDS / Class Data Sharing and, on newer JDKs, Project Leyden-style ahead-of-time work aim to reduce startup/warm-up cost, distinct from steady-state optimization',
+      'Synthetic warm-up traffic before joining a load balancer is a standard mitigation for user-facing latency-sensitive services',
+    ],
+    readMinutes: 2,
+    related: ['jit-warmup-tiered-compilation', 'throughput-vs-latency'],
+  },
+]
+
+const productionConcepts: ConceptCard[] = [
+// --- Observability ---
+  {
+    id: 'structured-logging-mdc',
+    title: 'Structured Logging & MDC/Correlation IDs',
+    group: 'Observability',
+    definition: 'Logging as key-value structured events (usually JSON) with a request-scoped correlation ID propagated via MDC (Mapped Diagnostic Context) so every log line from a request can be grepped together across threads and services.',
+    whyItMatters: [
+      'MDC is thread-local, so it silently disappears across thread pool handoffs (async/@Async, executor submissions, reactive schedulers) unless explicitly propagated — a common source of "missing" correlation IDs in async code paths',
+      'Structured (JSON) logs are what makes log aggregation and querying (not just full-text search) viable at production scale',
+    ],
+    remember: ['MDC.put() before dispatch, MDC.clear() in a finally — leaking MDC state across pooled threads leaks one request\'s correlation ID into another\'s logs'],
+    readMinutes: 2,
+  },
+  {
+    id: 'production-jvm-metrics',
+    title: 'What to Actually Monitor for a JVM Service',
+    group: 'Observability',
+    definition: 'A short list of JVM/service metrics that predict incidents before users notice: heap usage after full GC, GC pause time and frequency, thread pool queue depth/saturation, and error rate/latency percentiles (not averages).',
+    whyItMatters: [
+      'Heap usage right after a full GC (not the sawtooth peak) is the real signal for a leak — a rising floor across GCs means live objects are accumulating, not just garbage waiting to be collected',
+      'p99 latency and error rate catch problems averages hide entirely — a stalled thread pool can show a fine average while 1% of requests time out',
+    ],
+    remember: ['Thread pool queue depth approaching capacity is often the earliest signal of downstream slowness, well before error rate moves', 'See GC tuning subtopic for pause-time mechanics — this card is about which numbers to watch, not how GC works'],
+    interviewAngle: { q: 'Why watch post-GC heap floor instead of peak heap usage?', a: 'Peak heap rises and falls normally with allocation; a rising floor after each full GC means objects that should be garbage are still reachable — the actual leak signal.' },
+    readMinutes: 2,
+  },
+  {
+    id: 'health-vs-readiness-liveness',
+    title: 'Liveness vs Readiness Probes',
+    group: 'Observability',
+    definition: 'Liveness answers "is this process alive and should be restarted if not"; readiness answers "is this instance currently able to serve traffic" — conflating them causes orchestrators to either kill healthy-but-busy pods or route traffic to broken ones.',
+    whyItMatters: [
+      'A liveness probe that checks downstream dependencies (a database, a queue) causes cascading restarts during an outage — the app is fine, the dependency isn\'t, and killing the app makes recovery slower, not faster',
+      'Readiness should reflect the ability to serve now (warm caches, DB connection available, thread pool not saturated) and can flip false temporarily without killing the process',
+    ],
+    remember: ['Liveness failing = restart the process; readiness failing = stop routing traffic but keep it running', 'A slow startup (cache warmup, large classloading) should hold readiness false, not fail liveness'],
+    readMinutes: 2,
+  },
+
+  // --- Lifecycle & Shutdown ---
+  {
+    id: 'graceful-shutdown-sigterm',
+    title: 'Graceful Shutdown & SIGTERM Handling',
+    group: 'Lifecycle & Shutdown',
+    definition: 'On SIGTERM, a well-behaved JVM service stops accepting new work, drains in-flight requests within a bounded grace period, then exits — via a JVM shutdown hook plus application-level draining, before the orchestrator escalates to SIGKILL.',
+    whyItMatters: [
+      'Orchestrators (Kubernetes, ECS) send SIGTERM then SIGKILL after a fixed grace period (default 30s in k8s) — anything not drained by then is abruptly terminated mid-request',
+      'Abrupt termination mid-write can corrupt state or lose data that a graceful drain would have completed or safely rejected',
+    ],
+    remember: ['Register via Runtime.getRuntime().addShutdownHook(), but keep the hook fast and non-blocking-forever — it still has a hard deadline', 'Readiness should flip to not-ready immediately on SIGTERM so the load balancer stops sending new traffic before the drain even starts — this closes the race between "signal received" and "traffic still arriving"'],
+    diagram: 'flowchart LR\n  a[SIGTERM received] --> b[Readiness flips false]\n  b --> c[Stop accepting new requests]\n  c --> d[Drain in flight requests]\n  d --> e[Shutdown hook runs]\n  e --> f[Process exits]',
+    readMinutes: 3,
+  },
+  {
+    id: 'jvm-startup-warmup-containers',
+    title: 'JVM Startup & Warm-up in Containers',
+    group: 'Lifecycle & Shutdown',
+    definition: 'Cold JVM startup pays for class loading and JIT warm-up (interpreted/C1 execution before C2 kicks in) every time a container restarts or autoscales, which matters far more in short-lived containers than long-running servers.',
+    whyItMatters: [
+      'Aggressive autoscaling or frequent redeploys mean a meaningful fraction of a service\'s traffic can hit cold, unoptimized instances — this is why readiness gating on real warmup (not just process-up) matters',
+      'CDS (Class Data Sharing) / AppCDS and tools like CRaC exist specifically to cut startup and warmup cost in container-heavy environments — worth naming even without deep JIT mechanics (see performance subtopic for JIT tiering details)',
+    ],
+    remember: ['Don\'t mark readiness true immediately on process start if the service needs real warmup — early traffic will hit slow, un-JIT\'d code paths'],
+    readMinutes: 2,
+    related: ['health-vs-readiness-liveness'],
+  },
+  {
+    id: 'externalized-config-secrets',
+    title: 'Externalized Config, Feature Flags & Secrets',
+    group: 'Lifecycle & Shutdown',
+    definition: 'Production JVM config is externalized from the build artifact (env vars, config server, mounted files) so the same binary is promoted unchanged across environments, with feature flags enabling safe rollout and secrets kept out of both config files and logs.',
+    whyItMatters: [
+      'Baking environment-specific config into the artifact means you\'re no longer testing the thing you ship — the build that passed staging isn\'t bit-identical to what runs in prod',
+      'Secrets landing in application logs (accidentally toString()\'d, or logged at debug level) is a recurring real-world incident category, not a hypothetical',
+    ],
+    remember: ['Feature flags let you decouple deploy from release — ship dark, enable gradually, kill instantly without a redeploy'],
+    readMinutes: 2,
+  },
+
+  // --- Diagnostics ---
+  {
+    id: 'thread-dump-analysis',
+    title: 'Thread Dump Analysis (jstack)',
+    group: 'Diagnostics',
+    definition: 'A thread dump (jstack, or kill -3/SIGQUIT) captures every thread\'s stack and state at one instant, used to diagnose a stuck, deadlocked, or thrashing service by reading what threads are blocked on and where.',
+    whyItMatters: [
+      'A single dump shows blocking; diagnosing a genuine deadlock reliably needs the JVM\'s own "Found one Java-level deadlock" detection in the dump output, or 2-3 dumps a few seconds apart to see if the same threads are stuck in the same place',
+      'Many threads all BLOCKED waiting on the same lock (not deadlocked, just contended) looks similar to a hang at first glance but has a completely different fix — reduce lock scope, not break a cycle',
+    ],
+    remember: ['Thread states to know: RUNNABLE, BLOCKED (waiting on a monitor), WAITING/TIMED_WAITING (Object.wait, park, sleep) — BLOCKED vs WAITING tells you contention vs voluntary pause', 'Take multiple dumps over time for a suspected hang, not just one — a single snapshot can\'t distinguish "stuck" from "just slow right now"'],
+    interviewAngle: { q: 'A service is unresponsive but not crashed — walk through diagnosing it.', a: 'Take 2-3 thread dumps a few seconds apart via jstack; look for "Found Java-level deadlock" in the output, or the same threads BLOCKED on the same lock across dumps, which points at contention rather than a true cycle.' },
+    readMinutes: 2,
+  },
+  {
+    id: 'heap-dump-analysis',
+    title: 'Heap Dump Capture & Analysis',
+    group: 'Diagnostics',
+    definition: 'A heap dump (jmap -dump, or -XX:+HeapDumpOnOutOfMemoryError) snapshots every live object on the heap for offline analysis of memory leaks, usually via retained-size and dominator-tree views rather than raw object counts.',
+    whyItMatters: [
+      'jmap triggers a stop-the-world pause proportional to heap size — dumping a multi-GB heap on a live production instance can freeze it for tens of seconds, so it\'s usually done on one instance pulled out of rotation, not the whole fleet',
+      'HeapDumpOnOutOfMemoryError captures the dump automatically at the moment of failure, which is often more useful than a manually triggered dump because it catches the actual leaking state',
+    ],
+    remember: ['Look at retained size and the dominator tree, not shallow object count — a few large retained objects (e.g. an ever-growing cache) explain more than counting instances', 'Prefer capturing on a drained/cordoned instance, or accept the pause as a deliberate tradeoff — never dump blind on a fully-loaded production node without expecting a stall'],
+    readMinutes: 2,
+    related: ['production-jvm-metrics'],
+  },
+  {
+    id: 'oom-killer-vs-heap-oom',
+    title: 'Container OOM Killer vs JVM Heap OutOfMemoryError',
+    group: 'Diagnostics',
+    definition: 'A container silently killed by the Linux/cgroup OOM killer (exit code 137, no stack trace) is a different failure from a JVM-thrown OutOfMemoryError — the former means total process memory (heap + metaspace + thread stacks + native/off-heap) exceeded the container limit, not just the heap.',
+    whyItMatters: [
+      '-Xmx only bounds the heap; metaspace, thread stacks (each thread costs real native memory), direct/native buffers, and JIT code cache all count against the container\'s memory limit but aren\'t covered by -Xmx',
+      'Setting -Xmx close to the container memory limit with no headroom for those other regions is one of the most common causes of mysterious container restarts that never show a Java-level OOM stack trace',
+    ],
+    remember: ['Exit code 137 + no JVM stack trace = suspect the OOM killer, not a heap OutOfMemoryError', '-XX:+UseContainerSupport (default since JDK 10+) makes the JVM heap-size ergonomics aware of cgroup limits, but doesn\'t eliminate the need for headroom'],
+    readMinutes: 2,
+  },
+  {
+    id: 'classloader-leaks-redeploy',
+    title: 'Classloader Leaks on Redeploy',
+    group: 'Diagnostics',
+    definition: 'In app-server-style hot redeploys, a static reference, unclosed ThreadLocal, or a lingering non-daemon thread from the old application version can keep its entire classloader (and every class it loaded) reachable, so repeated redeploys accumulate leaked classloaders until metaspace exhausts.',
+    whyItMatters: [
+      'Metaspace OutOfMemoryError after N redeploys with no code change is the classic symptom — each redeploy looked fine individually',
+      'Common root causes: a driver or logging framework registered in a static registry that outlives the redeploy, or a ThreadLocal set by old-version code never cleared',
+    ],
+    remember: ['Frameworks like JDBC drivers and java.util.logging are common offenders because they self-register in static, JVM-lifetime registries'],
+    readMinutes: 2,
+  },
+
+  // --- Resilience ---
+  {
+    id: 'circuit-breakers-jvm-services',
+    title: 'Circuit Breakers for JVM Services',
+    group: 'Resilience',
+    definition: 'A circuit breaker wraps a call to a flaky dependency and, after enough failures, "opens" to fail fast instead of continuing to call and pile up blocked threads — moving to half-open after a cooldown to test recovery.',
+    whyItMatters: [
+      'Without a breaker, a slow downstream dependency doesn\'t just fail its own calls — it exhausts the calling service\'s thread pool as threads pile up waiting on timeouts, taking down unrelated functionality too',
+      'A breaker only helps if timeouts are also set sensibly — a breaker guarding a call with no timeout, or an absurdly long one, still lets threads pile up before it ever trips',
+    ],
+    remember: ['Fail fast beats fail slow: an open circuit returning an immediate fallback protects the caller\'s own resources, not just the failing dependency'],
+    readMinutes: 2,
+  },
+  {
+    id: 'connection-pool-sizing-exhaustion',
+    title: 'Connection Pool Sizing & Exhaustion',
+    group: 'Resilience',
+    definition: 'A connection pool (DB, HTTP client) sized too small starves the service under load; sized too large can overwhelm the downstream resource or exhaust its own connection limit — exhaustion shows up as request threads blocked waiting on pool checkout, not as an obvious connection error.',
+    whyItMatters: [
+      'Pool size should be informed by downstream capacity and typical hold time, not guessed — a common rule of thumb (Little\'s Law-based) is far smaller than intuition suggests, since more connections than CPU cores usually just adds contention on the DB side',
+      'A leaked connection (never returned to the pool — missing close() in a code path, especially on an exception branch) slowly shrinks effective pool size until checkout waits exhaust request threads, and it can look identical to underprovisioning at first',
+    ],
+    remember: ['Symptom to know: pool-exhaustion timeouts spike while the database itself shows low load — the bottleneck is checkout, not the query', 'Always distinguish "pool too small for the load" from "pool leaking connections" before resizing — resizing a leak just delays the same failure'],
+    readMinutes: 2,
+  },
+]
+
 export const javaConcepts: ConceptSection[] = [
   {
     id: 'java-concept-fundamentals',
@@ -1826,6 +3972,69 @@ export const javaConcepts: ConceptSection[] = [
     title: 'Generics',
     intro: 'Type erasure explains almost every generics gotcha in Java — once that clicks, wildcards, bounded types, and the handful of things you genuinely can\'t do with generics all make sense as consequences of one design decision.',
     concepts: genericsConcepts,
+  },
+  {
+    id: 'java-concept-concurrency',
+    subtopic: 'concurrency',
+    title: 'Concurrency & Multithreading',
+    intro: 'Thread safety is about coordinating access to shared mutable state. This section covers the fundamentals: thread basics, synchronization, visibility, race conditions, deadlock, and design patterns that make concurrent code predictable.',
+    concepts: concurrencyConcepts,
+  },
+  {
+    id: 'java-concept-jmm',
+    subtopic: 'jmm',
+    title: 'Java Memory Model',
+    intro: 'The Java Memory Model is the specification that defines which writes by one thread are guaranteed to become visible to reads by another — the formal contract of ordering and visibility that everything else in java.util.concurrent is built on top of.',
+    concepts: jmmConcepts,
+  },
+  {
+    id: 'java-concept-locks',
+    subtopic: 'locks',
+    title: 'Locks & Synchronization',
+    intro: 'Goes past the synchronized keyword into java.util.concurrent.locks — explicit lock APIs, read/write splitting, optimistic locking, and the synchronizer classes senior engineers reach for when intrinsic locks run out of expressiveness.',
+    concepts: locksConcepts,
+  },
+  {
+    id: 'java-concept-concurrent-collections',
+    subtopic: 'concurrent-collections',
+    title: 'Concurrent Collections',
+    intro: 'The java.util.concurrent collection types purpose-built for multi-threaded access — how each achieves thread safety without a single global lock, and where picking the wrong one costs you correctness or throughput.',
+    concepts: concurrentCollectionsConcepts,
+  },
+  {
+    id: 'java-concept-async',
+    subtopic: 'async',
+    title: 'Async Programming',
+    intro: 'Java\'s higher-level execution frameworks for running work off the calling thread — the Executor/ExecutorService family, Future/CompletableFuture composition, ForkJoinPool\'s work-stealing algorithm, and how virtual threads change the calculus.',
+    concepts: asyncConcepts,
+  },
+  {
+    id: 'java-concept-jvm-internals',
+    subtopic: 'jvm-internals',
+    title: 'JVM Internals',
+    intro: 'What happens between a .class file and a running program — class loading, the memory areas the JVM structurally partitions, the bytecode execution model, tiered JIT compilation, and how to read an OutOfMemoryError back to its cause.',
+    concepts: jvmInternalsConcepts,
+  },
+  {
+    id: 'java-concept-gc',
+    subtopic: 'gc',
+    title: 'Garbage Collection',
+    intro: 'Garbage collection frees Java developers from manual memory management, but senior engineers still need to reason about generational heap layout, choose and tune a collector for a workload, read GC logs under pressure, and recognize the leak patterns GC can\'t save you from.',
+    concepts: gcConcepts,
+  },
+  {
+    id: 'java-concept-performance',
+    subtopic: 'performance',
+    title: 'Java Performance',
+    intro: 'Performance engineering on the JVM — how the JIT actually turns hot code into fast machine code, how to measure that honestly with JMH instead of fooling yourself, how to profile production workloads, and the allocation/latency patterns that separate fast code from code that merely looks fast.',
+    concepts: performanceConcepts,
+  },
+  {
+    id: 'java-concept-production',
+    subtopic: 'production',
+    title: 'Production Java',
+    intro: 'Running a JVM service in production is a different skill from knowing the language internals — the operational side: what to observe, how to shut down and diagnose safely, and the incident patterns that repeatedly page Java teams on-call.',
+    concepts: productionConcepts,
   },
 ]
 

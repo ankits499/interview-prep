@@ -42,19 +42,41 @@ in the file, not just the subtopic being replaced).
 
 ## Step 3 — Author the Concepts (no Firecrawl here)
 
-Write one `ConceptSection` (shape in `src/types.ts`) whose `concepts` array is a quick-reference
-library, not a set of essays — as many small `ConceptCard`s as the subtopic genuinely has distinct
-ideas worth a card, not a fixed count. A narrow subtopic might be well served by under 15; a broad
-one (Concurrency, Collections) may need well over 30. Read CONTENT.md's "Concept card philosophy"
-section before writing any of these; the short version:
+Don't go straight from "the subtopic" to "a list of finished cards" — that's the jump where
+quality drifts (padding to hit a round number, missing real gotchas, drifting into essay tone).
+Do it in three explicit passes instead:
 
-- Each card: **`definition`** (one sentence), optional **`whyItMatters`** (1–3 bullets), optional
-  **`example`** (small code + an optional one-line `note` only if the point isn't obvious from the
-  code alone), **`remember`** (2–4 flashcard-style points), optional **`interviewAngle`** (one
-  short Q/A teaser — not a full Q&A entry), optional **`related`** (a couple of sibling card ids).
+**3a. Brainstorm first, as a flat bullet list, before writing any `ConceptCard`.** One bullet per
+genuinely distinct, testable idea in the subtopic — a bullet is a title only, not a paragraph
+("HashMap treeification (Java 8+)", not "explain how HashMap changed in Java 8"). Don't filter yet,
+just get every idea you can think of onto the list. This is scratch work — you don't write it to
+any file, it just becomes your card list in 3c.
+
+**3b. Filter the brainstorm list — cut anything that fails this test:**
+- Would a senior engineer be expected to know this cold, not look it up? (cut pure trivia/syntax)
+- Is there a real "why," gotcha, tradeoff, or internals detail here — not just a definition? (cut
+  anything where the only thing to say is restate the name)
+- Is it actually about *this* subtopic, not something another subtopic already owns? If Step 2's
+  read of the existing files shows a near-identical idea already covered elsewhere (same example,
+  same gotcha, same "why"), cut it here or note it needs a different angle — don't carry the
+  duplicate forward into 3c.
+
+What survives this filter is your final card list — this *is* the "as many as the subtopic
+genuinely has" judgment call, just made explicit and auditable instead of an intuition call while
+writing.
+
+**3c. Write one `ConceptCard` per surviving bullet** (shape in `src/types.ts`), grouped into a
+`ConceptSection` — a quick-reference library, not a set of essays. Read CONTENT.md's "Concept card
+philosophy" section once before starting; the mechanical rules:
+
+- Each card: **`definition`** (one sentence — if you need a second sentence, the idea is probably
+  two cards, not one), optional **`whyItMatters`** (1–3 bullets), optional **`example`** (small
+  code + a one-line `note` only if the point isn't obvious from the code alone), **`remember`**
+  (2–4 flashcard-style points), optional **`interviewAngle`** (one short Q/A teaser — not a full
+  Q&A entry), optional **`related`** (a couple of sibling card ids).
 - Understand in 1–3 minutes, move on. No long paragraphs, no essay-style numbered headers, no
   over-explaining the obvious. Not every card needs every field — a card with just `definition` +
-  `remember` is completely fine.
+  `remember` is completely fine; don't add a field just because it's available.
 - Assign each card a **`group`** reflecting a real learning progression for the subtopic (e.g.
   Foundations → core mechanics → design judgment) — group order is set by first appearance in the
   array, so lay the array out in the order you want the reader to progress through.
@@ -70,7 +92,9 @@ section before writing any of these; the short version:
   **Keep every diagram small.** It renders inside a narrow card (~320–384px wide, capped height
   with scroll past that) at its *natural* size — it is not auto-scaled up to fill the space, so a
   diagram with too many nodes just looks cramped or scrolls. 3–6 nodes, short labels (a word or
-  two), no subgraphs, and prefer `flowchart LR` over `TD` for short linear sequences.
+  two), no subgraphs, and prefer `flowchart LR` over `TD` for short linear sequences. **Node labels
+  must be plain words only — no `"`, `(`, `)`, `#`, or other special characters** (this has broken
+  a shipped diagram before; see the checklist in Step 7).
 
 ## Step 4 — Decide whether this subtopic needs a Firecrawl pass
 
@@ -95,27 +119,38 @@ If in doubt about a specific subtopic, ask the user rather than defaulting eithe
 
 ## Step 5 — Author the Q&A
 
-Write `Question` objects (shape in `src/types.ts`) — as many as the subtopic's real breadth
-actually supports, one solid question per distinct thing a senior interviewer would probe, not a
-fixed count. A narrow subtopic might genuinely need only 8; a broad one (concurrency, collections)
-might need 25+. Resist padding to hit a round number, and resist stopping early just because a
-prior subtopic landed at some number. For each:
+Same two-pass approach as Step 3, not straight to finished questions:
+
+**5a. Brainstorm one question idea per surviving Step 3b bullet, plus any interviewer angle that
+doesn't map 1:1 to a concept card** (a comparison between two cards, a scenario spanning several).
+Each idea is a one-line "what would the interviewer actually ask" note, not a written question yet.
+
+**5b. Filter and dedup before writing full `Question` objects:**
+- Cut anything that just restates a `ConceptCard.definition` with a question mark on the end —
+  that's not a real interview probe, see "Test the concept, don't restate it" below.
+- Cut anything that duplicates another idea on this same list, or duplicates a question already in
+  the file from Step 2's read (same concept, different phrasing still counts as a duplicate — keep
+  whichever framing is sharper, not both).
+
+What survives is your final question list — a narrow subtopic might genuinely land at 8, a broad
+one (concurrency, collections) at 25+; the count is an output of this filter, not a target you're
+writing toward.
+
+**5c. Write the `Question` objects** (shape in `src/types.ts`):
 
 - `topic` / `subtopic` set correctly; `id` following the file's existing naming pattern.
 - `difficulty` skewed Intermediate–Expert, `seniority` skewed Senior–Staff — this is a senior/lead
   interview reference, not a screening quiz.
 - `shortAnswer` always present, sized for a 30–60 second revision read.
-- `detailedAnswer` / `keyPoints` / `seniorFollowUps` / `example` — add real depth on no more than
-  roughly 40% of the questions, not uniformly on all of them. Padding every question with every
-  optional field is worse than a few sharp, concise ones plus a few genuinely deep ones — it also
-  costs real tokens for no reader benefit. Use judgment about where the extra depth actually earns
-  its place.
-- Dedup against the other new questions *and* against everything already in the file (from Step 2)
-  — if a question you're about to write is really the same concept as one that already exists
-  elsewhere in the file, don't add a near-duplicate.
-- **Test the concept, don't restate it.** Read CONTENT.md's "Concepts vs Q&A" section. If a
-  question's `shortAnswer` reads like a `ConceptCard.definition` copy-pasted, rewrite it as a
-  scenario, a comparison, or a probe of the gotcha the card's `interviewAngle` only teased at.
+- **`detailedAnswer` / `keyPoints` / `seniorFollowUps` / `example` — deterministic rule, not a
+  vibe call:** sort your finished question list by `difficulty` (Expert → Advanced → Intermediate →
+  Basic), take the top 40% by count (round up, minimum 1), and only those get the optional depth
+  fields. Everything else ships with `shortAnswer` alone. This is a hard cap, not a suggestion —
+  padding every question with every optional field costs real tokens for no reader benefit.
+- **Test the concept, don't restate it.** Read CONTENT.md's "Concepts vs Q&A" section. A question's
+  `shortAnswer` should never read like a `ConceptCard.definition` with different words — it should
+  be a scenario ("a service does X and Y happens — why"), a comparison ("what's the real difference
+  between A and B"), or a probe of the gotcha a card's `interviewAngle` only teased at.
 
 ## Step 6 — Write the files
 
@@ -129,17 +164,34 @@ edit on one of these arrays has silently truncated the file before (a stray `]` 
 or a line dropped between the old and new content). Skim the diff and confirm the file's structure
 looks intact around the edit boundary, not just that the new content itself reads correctly.
 
-## Step 7 — Verify
+## Step 7 — Self-audit, then verify
 
-Run **`npm run build`** from the repo root — this is the authoritative check, and the only one you
-need to run. `npx tsc --noEmit` is not a reliable substitute (different config/cache — it has
-passed before on a file `npm run build`'s `tsc -b` then failed on) and isn't worth running as an
-extra interim step either; go straight to `npm run build` once the files are written. If it fails,
-fix the content and re-run rather than leaving a broken build behind.
+**Before running the build, work through this checklist against what you just wrote** — each item
+here has actually broken a shipped run before, so don't skip any:
 
-If any `ConceptCard` in this run has a `diagram`, also re-read each one for quotes, parens, or
-other special characters inside node labels (`a["x = new String(\"hi\")"]` fails to parse) —
-Mermaid syntax errors are a runtime failure the build won't catch. Keep labels to plain words.
+- [ ] Every `diagram` node label is plain words only — no `"`, `(`, `)`, `#`, or other special
+      characters (`a["x = new String(\"hi\")"]` fails to parse; `a[new String]` doesn't). Mermaid
+      syntax errors are a *runtime* failure — the build will not catch them, only your own re-read
+      will.
+- [ ] No two `Question`s in the whole file (new ones against each other, and against what Step 2
+      showed already existed) test the same concept in different words.
+- [ ] No `ConceptCard` example/definition duplicates one already used for the same idea in another
+      subtopic's section in this file (e.g. don't let two subtopics both illustrate `==` vs
+      `equals()` with the identical `new String("hi")` snippet — pick a different concrete example
+      for whichever one you're writing now). Skim the other `ConceptSection`s in the file if the
+      subtopic is conceptually adjacent to one that already exists.
+- [ ] Every card has `id` (kebab-case, unique), `title`, `group`, `definition` — and only carries
+      the optional fields that genuinely add something beyond the definition, not every field just
+      because it exists.
+- [ ] The depth-field rule from Step 5c was actually applied (top ~40% by difficulty get
+      `detailedAnswer`/`keyPoints`/`seniorFollowUps`, the rest don't) — not applied unevenly or to
+      everything.
+
+Then run **`npm run build`** from the repo root — this is the authoritative check, and the only
+one you need to run. `npx tsc --noEmit` is not a reliable substitute (different config/cache — it
+has passed before on a file `npm run build`'s `tsc -b` then failed on) and isn't worth running as
+an extra interim step either; go straight to `npm run build` once the files are written. If it
+fails, fix the content and re-run rather than leaving a broken build behind.
 
 ## Step 8 — Visual sanity check (only if a dev server is already running)
 
