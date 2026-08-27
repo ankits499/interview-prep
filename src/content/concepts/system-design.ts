@@ -912,7 +912,7 @@ const sdSqlVsNosqlConcepts: ConceptCard[] = [
       'Treating "NoSQL" as one category is a common junior mistake — a graph database and a key-value store solve almost opposite problems',
       'Picking the category should be driven by the shape of your queries (point lookup vs traversal vs range scan), not by scale requirements alone',
     ],
-    diagram: 'flowchart LR\n  A[Data access shape] --> B[Point lookup by key]\n  A --> C[Nested document by id]\n  A --> D[Wide sequential writes]\n  A --> E[Relationship traversal]\n  B --> F[Key value store]\n  C --> G[Document store]\n  D --> H[Wide column store]\n  E --> I[Graph database]',
+    diagram: 'flowchart LR\n  A[Access shape] -->|point lookup| B[Key value]\n  A -->|nested by id| C[Document]\n  A -->|sequential writes| D[Wide column]\n  A -->|traversal| E[Graph]',
     readMinutes: 2,
     related: ['key-value-stores', 'document-stores', 'wide-column-stores', 'graph-databases'],
   },

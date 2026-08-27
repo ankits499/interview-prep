@@ -11,7 +11,7 @@ export function ConceptCardView({ concept, related }: { concept: ConceptCard; re
 
   return (
     <section id={concept.id} className="scroll-mt-6 border-b border-border py-7 first:pt-0 last:border-b-0">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex max-w-[65ch] items-start justify-between gap-4">
         <h3 className="text-base font-semibold text-ink">{concept.title}</h3>
         <button
           onClick={() => toggleReviewed(concept.id)}

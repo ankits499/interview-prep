@@ -265,12 +265,8 @@ const fundamentalsConcepts: ConceptCard[] = [
     ],
     interviewAngle: { q: 'When is inheritance still the right call over composition?', a: 'When the relationship is a genuine, Liskov-honoring "is-a" AND you specifically need polymorphic dispatch through the parent type — composition alone can\'t give callers that without also defining an interface.' },
     diagram: `flowchart LR
-    subgraph is-a
-    Dog --> Animal
-    end
-    subgraph has-a
-    Car -->|has| Engine
-    end`,
+    Dog -->|is-a| Animal
+    Car -->|has-a| Engine`,
     readMinutes: 3,
     related: ['inheritance', 'composition'],
   },

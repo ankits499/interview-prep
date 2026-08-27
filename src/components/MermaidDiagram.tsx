@@ -49,18 +49,26 @@ export function MermaidDiagram({ code }: { code: string }) {
         themeVariables: {
           ...palettes[theme],
           fontFamily: 'IBM Plex Mono, ui-monospace, monospace',
-          fontSize: '12px',
+          fontSize: '13px',
         },
-        // Tight spacing keeps diagrams compact by default — content should stay small
-        // (few nodes, short labels) rather than relying on this to shrink a big diagram.
-        flowchart: { nodeSpacing: 16, rankSpacing: 20, padding: 6, htmlLabels: true },
-        sequence: { actorMargin: 40, messageMargin: 20, boxMargin: 6 },
-        state: { nodeSpacing: 16, rankSpacing: 20, padding: 6 },
+        // Moderate spacing bump over mermaid's defaults (16/20/6) — enough
+        // that short labels don't feel cramped, without inflating a diagram's
+        // natural canvas so much that it needs heavy shrinking to fit.
+        flowchart: { nodeSpacing: 20, rankSpacing: 26, padding: 8, htmlLabels: true, useMaxWidth: true },
+        sequence: { actorMargin: 44, messageMargin: 24, boxMargin: 8, useMaxWidth: true },
+        state: { nodeSpacing: 20, rankSpacing: 26, padding: 8, useMaxWidth: true },
         securityLevel: 'strict',
       })
       mermaid
         .render(id, code.trim())
         .then(({ svg: rendered }) => {
+          // Mermaid's own output already carries width="100%" plus an inline
+          // style="max-width: <natural-px>" (from useMaxWidth) — that pairing
+          // IS the correct responsive behavior (fill available space, never
+          // grow past natural size). Don't strip or override it with our own
+          // CSS/attributes — every previous attempt to do that either forced
+          // small diagrams to stretch far past their intended size, or fought
+          // mermaid's sizing unpredictably. Pass it straight through.
           if (!cancelled) {
             setSvg(rendered)
             setError(null)
@@ -76,15 +84,15 @@ export function MermaidDiagram({ code }: { code: string }) {
   }, [code, theme, id])
 
   return (
-    <div className="max-w-xs overflow-hidden rounded-md border border-border sm:max-w-sm">
+    <div className="w-full max-w-[65ch] overflow-hidden rounded-md border border-border">
       <div className="flex items-center border-b border-border bg-accent-soft px-3 py-1.5">
         <span className="font-mono text-[10px] uppercase tracking-wide text-ink-muted">Diagram</span>
       </div>
-      <div className="max-h-80 overflow-auto bg-surface px-3 py-2.5">
+      <div className="max-h-[28rem] overflow-auto bg-surface px-3 py-3">
         {error ? (
           <p className="font-mono text-xs text-ink-muted">Diagram failed to render: {error}</p>
         ) : svg ? (
-          <div className="[&_svg]:mx-auto" dangerouslySetInnerHTML={{ __html: svg }} />
+          <div className="text-center [&_svg]:inline-block" dangerouslySetInnerHTML={{ __html: svg }} />
         ) : (
           <p className="font-mono text-xs text-ink-muted">Rendering…</p>
         )}

@@ -97,7 +97,7 @@ A `ConceptCard` can include optional `diagram` — raw Mermaid syntax rendered c
 
 - **Use sparingly** — only where a picture genuinely clarifies (memory layout, GC flow, lock/thread states, sequence diagrams). Most cards need zero
 - **Keep labels plain** — no quotes, parens, special chars inside `[...]` labels — Mermaid's parser breaks: `a[new String]` yes, `a["x = new String(\"hi\")"]` fails
-- **Keep it small** — 3–6 nodes, short labels (word or two). Cards are ~320–384px wide; oversized diagrams scroll/look cramped. Use `flowchart LR` for sequences (wide/shallow) over `TD` (tall/stacked)
+- **Keep it small** — 3–6 nodes, short labels (word or two), **no `subgraph`** (nests a whole extra layout inside a diagram — always flatten to plain edges instead). Diagrams render at the card's `max-w-[65ch]` prose measure; oversized/nested diagrams scroll or look cramped. Use `flowchart LR` for sequences (wide/shallow) over `TD` (tall/stacked)
 - Example:
   ```ts
   diagram: `flowchart LR
