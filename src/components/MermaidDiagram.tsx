@@ -37,9 +37,10 @@ const palettes = {
 // scrolling — cramming every node into one row at illegibly small size
 // instead. Flip it to a top-down layout on narrow viewports instead, so it
 // stacks and scrolls vertically (the natural mobile interaction) rather
-// than squeezing horizontally. Only kicks in for genuinely long chains —
-// short diagrams keep their authored LR flow on every screen size.
-const LONG_CHAIN_EDGE_THRESHOLD = 5
+// than squeezing horizontally. Threshold is edges, not nodes — a chain of
+// more than 3 nodes (3+ edges) switches; a 3-node/2-edge chain still fits
+// comfortably on one row even on mobile and keeps its authored LR flow.
+const LONG_CHAIN_EDGE_THRESHOLD = 3
 
 function countEdges(code: string): number {
   return (code.match(/--[-.>]*>|---/g) || []).length
