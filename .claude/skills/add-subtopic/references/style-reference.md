@@ -4,6 +4,42 @@ For an agent drafting one subtopic's content. This is the trimmed version of the
 `CONTENT.md` — schema and tone only, no sourcing/pitfalls/file-layout sections. Don't read the
 full `CONTENT.md`; this is enough.
 
+## Output format: write JSON, not TypeScript
+
+**Write your output as one JSON file** (via the Write tool, to the scratch path you were given)
+— not TypeScript. The calling process merges JSON files with `scripts/merge_content.py`, which
+renders TypeScript itself from clean structured data; it does not parse or splice TS you write by
+hand. Match this top-level shape exactly:
+
+```json
+{
+  "topic": "<topic id, e.g. spring-boot>",
+  "subtopic": "<subtopic id from src/content/subtopics.ts>",
+  "sectionId": "<pattern: see note below>",
+  "constBaseName": "<camelCase base name, e.g. sbTransactions>",
+  "sectionTitle": "<short title for the ConceptSection>",
+  "sectionIntro": "<1-2 sentence framing of the subtopic>",
+  "concepts": [ /* ConceptCard objects, shape below */ ],
+  "questions": [ /* Question objects, shape below */ ]
+}
+```
+
+- **`sectionId`**: follow the convention already used in the target `concepts/<topic>.ts` file —
+  grep it for `id: '.*concept` to see the pattern for this topic before writing your file. It's
+  normally `<prefix>-concept-<subtopic-without-prefix>` (e.g. subtopic `sb-transactions` →
+  `sb-concept-transactions`) or, for topics whose subtopic ids carry no prefix, `<topic>-concept-
+  <subtopic>` (e.g. Java's `concurrency` → `java-concept-concurrency`).
+- **`constBaseName`**: a camelCase name unique to this subtopic, no `Concepts`/`Questions` suffix
+  (the merge script appends those itself) — e.g. subtopic `sb-transactions` → `sbTransactions`.
+- Every object inside `concepts`/`questions` is plain JSON: use JSON string/array/number syntax
+  throughout (no TS-specific syntax, no trailing commas, no comments, no template literals —
+  multi-line strings are just JSON strings with `\n` escapes, the merge script turns those into
+  template literals for you). Omit a key entirely for an unused optional field; don't set it to
+  `null`.
+- Double-check your JSON parses (e.g. mentally, or by being careful with escaping `"` and `\`
+  inside strings) before reporting done — a malformed JSON file fails fast and loud at merge time,
+  which is the whole point of this format, but it still costs a re-run.
+
 ## Shapes (from `src/types.ts`)
 
 ```ts

@@ -212,23 +212,45 @@ the Q&A grounding, and the verification result. This is a content-authoring pass
 ## Generating several subtopics at once
 
 If the user asks for multiple subtopics in one go, don't run them through separate full skill
-invocations sequentially — draft them in parallel via subagents, then merge and verify once. This
-keeps token/time cost roughly per-subtopic instead of compounding overhead N times.
+invocations sequentially — draft them in parallel via subagents, then merge and verify once with
+`scripts/merge_content.py`. This keeps token/time cost roughly per-subtopic instead of
+compounding overhead N times.
 
 - **Each drafting agent reads `references/style-reference.md`, not the full `CONTENT.md`.** The
   full doc carries sourcing/pitfalls/file-layout sections a drafting agent doesn't need — the
   condensed reference has the schema, tone, and one example card/question, which is enough to
   match the site's style. (You, running this skill's later steps yourself, still read the real
   `CONTENT.md` when it matters — e.g. the "Common pitfalls" section in Step 6/7.)
-- **Each agent writes its own output directly to a file** (e.g. via the Write tool to a scratch
-  path) instead of pasting the full `ConceptCard[]`/`Question[]` TypeScript back in its response.
-  A drafted subtopic can run tens of thousands of tokens — round-tripping that through the
-  conversation and then re-transcribing it into a merge script is the single biggest avoidable
-  cost in a multi-subtopic run. Have the agent report back only: file path, card/question counts,
-  group names, and any new ids it minted (for your own collision check, not to enumerate in prose).
-- **Don't ask agents to enumerate every existing id in their reply** to prove no collisions — that
-  bloats every agent's response for no real benefit, since the actual merge step re-checks
-  collisions programmatically anyway (see the id-collision check pattern below).
-- When merging: splice each agent's output file into the two content files yourself, in one pass,
-  then run the id-collision and `related`-ref integrity checks, then Step 7's `npm run build` once
-  for everything — not once per subtopic.
+- **Each agent writes structured JSON, not TypeScript, to its own scratch file** — one JSON file
+  per subtopic, matching the schema documented at the top of `scripts/merge_content.py` (also
+  summarized in `references/style-reference.md`). This is the key fix from an earlier version of
+  this workflow: agents used to write raw TS directly and a hand-rolled script spliced it in via
+  bracket-depth counting over that free-form text, which broke twice in production runs (a marker
+  string matched its own empty-array literal; a content string's unbalanced brackets confused the
+  depth counter) — both failures were silent until `npm run build`. JSON has no such ambiguity:
+  `json.loads` either parses correctly or throws immediately, and the merge script is the *only*
+  thing that ever renders TypeScript, from clean structured data, never by text-editing existing
+  TS. Don't have agents write `.ts` scratch files for a multi-subtopic batch anymore.
+  A drafted subtopic can still run tens of thousands of tokens — round-tripping that through the
+  conversation instead of writing straight to a file is the single biggest avoidable cost in a
+  multi-subtopic run. Have the agent report back only: file path, card/question counts, and group
+  names — not the content itself, and not an id enumeration (the merge script checks collisions
+  programmatically).
+- **Merge with the script, once, for the whole batch:**
+  ```bash
+  python3 scripts/merge_content.py <topic> <scratch1.json> <scratch2.json> ... 
+  ```
+  Run with `--dry-run` first if you want counts without writing anything. The script validates
+  each file's schema, checks every subtopic is already registered in `src/content/subtopics.ts`
+  (it never edits that file — add new subtopic ids there yourself, before drafting), rejects
+  duplicate ids (within the batch and against what's already in the target files), renders every
+  concept card and question to TypeScript itself (correct quoting, template literals for
+  multi-line strings, inline arrays for short tag/point lists — matching hand-authored style), and
+  appends everything in one pass. It runs `npm run build` automatically at the end unless you pass
+  `--no-build` — that build result is Step 7's verification for the whole batch, you don't need to
+  run it again separately. If the build fails, the two content files are left in the broken state
+  for you to fix directly (the malformed TS will be new, clean, script-generated code — much
+  easier to debug than a hand-spliced file) rather than silently reverted.
+- Still do the `related`-ref integrity check and the diagram-label special-character audit
+  yourself afterward (Step 7's checklist) — the script validates structure and ids, not content
+  quality.
