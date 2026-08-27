@@ -32,22 +32,22 @@ const palettes = {
   },
 }
 
-// A long left-right chain (many nodes in one row) is fine on desktop but
-// mermaid's responsive sizing *shrinks* it to fit a narrow card rather than
-// scrolling — cramming every node into one row at illegibly small size
-// instead. Flip it to a top-down layout on narrow viewports instead, so it
-// stacks and scrolls vertically (the natural mobile interaction) rather
-// than squeezing horizontally. Threshold is edges, not nodes — a chain of
-// more than 3 nodes (3+ edges) switches; a 3-node/2-edge chain still fits
-// comfortably on one row even on mobile and keeps its authored LR flow.
-const LONG_CHAIN_EDGE_THRESHOLD = 3
+// A long left-right chain (many nodes in one row) reads fine up to a point,
+// but mermaid's responsive sizing *shrinks* an overly long one to fit the
+// container rather than scrolling — cramming every node into one row at an
+// illegibly small size instead. Flip it to a top-down layout past a node
+// budget, so it stacks and scrolls vertically instead of squeezing
+// horizontally. Threshold is edges, not nodes (a chain of N nodes has N-1
+// edges) — mobile has less width to work with, so its budget is lower.
+const LONG_CHAIN_EDGE_THRESHOLD_MOBILE = 3
+const LONG_CHAIN_EDGE_THRESHOLD_DESKTOP = 5
 
 function countEdges(code: string): number {
   return (code.match(/--[-.>]*>|---/g) || []).length
 }
 
-function forceVerticalOnNarrow(code: string): string {
-  if (countEdges(code) < LONG_CHAIN_EDGE_THRESHOLD) return code
+function forceVerticalIfLong(code: string, threshold: number): string {
+  if (countEdges(code) < threshold) return code
   return code.replace(/^(flowchart|graph)\s+(LR|RL)\b/, '$1 TD')
 }
 
@@ -93,7 +93,8 @@ export function MermaidDiagram({ code }: { code: string }) {
         state: { nodeSpacing: 20, rankSpacing: 26, padding: 8, useMaxWidth: true },
         securityLevel: 'strict',
       })
-      const diagramCode = isNarrow ? forceVerticalOnNarrow(code.trim()) : code.trim()
+      const threshold = isNarrow ? LONG_CHAIN_EDGE_THRESHOLD_MOBILE : LONG_CHAIN_EDGE_THRESHOLD_DESKTOP
+      const diagramCode = forceVerticalIfLong(code.trim(), threshold)
       mermaid
         .render(id, diagramCode)
         .then(({ svg: rendered }) => {
