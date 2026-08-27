@@ -9,10 +9,12 @@ export function QuestionListItem({
   question,
   status,
   showSubtopic = false,
+  search,
 }: {
   question: Question
   status: ProgressStatus
   showSubtopic?: boolean
+  search?: string
 }) {
   const subtopicLabel = showSubtopic
     ? getSubtopicsForTopic(question.topic).find((s) => s.id === question.subtopic)?.label ?? question.subtopic
@@ -20,7 +22,7 @@ export function QuestionListItem({
 
   return (
     <Link
-      to={`/topic/${question.topic}/question/${question.id}`}
+      to={{ pathname: `/topic/${question.topic}/question/${question.id}`, search: search ? `?${search}` : '' }}
       className="flex items-center gap-3 border-b border-border py-3 transition-colors hover:bg-accent-soft/40"
     >
       <StatusDot status={status} />

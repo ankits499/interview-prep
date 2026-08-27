@@ -25,7 +25,7 @@ export function ConceptIndex({ concepts }: { concepts: ConceptCard[] }) {
                 <li key={c.id}>
                   <button
                     onClick={() => scrollToId(c.id)}
-                    className="flex w-full items-center justify-between gap-3 rounded px-1 py-1 text-left text-sm text-ink hover:bg-accent-soft/50 hover:text-accent"
+                    className="flex min-h-10 w-full items-center justify-between gap-3 rounded px-1 py-1 text-left text-sm text-ink hover:bg-accent-soft/50 hover:text-accent"
                   >
                     <span className="flex items-center gap-2 truncate">
                       <span

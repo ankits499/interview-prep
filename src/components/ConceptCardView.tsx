@@ -16,7 +16,7 @@ export function ConceptCardView({ concept, related }: { concept: ConceptCard; re
         <button
           onClick={() => toggleReviewed(concept.id)}
           aria-pressed={reviewed}
-          className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide transition-colors ${
+          className={`flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-wide transition-colors ${
             reviewed ? 'border-accent bg-accent-soft text-accent' : 'border-border text-ink-muted hover:text-ink'
           }`}
         >
@@ -88,7 +88,7 @@ export function ConceptCardView({ concept, related }: { concept: ConceptCard; re
             <button
               key={r.id}
               onClick={() => scrollToId(r.id)}
-              className="rounded-full border border-border px-2 py-0.5 text-xs text-ink-muted hover:border-accent hover:text-accent"
+              className="min-h-9 rounded-full border border-border px-3 py-0.5 text-xs text-ink-muted hover:border-accent hover:text-accent"
             >
               {r.title}
             </button>

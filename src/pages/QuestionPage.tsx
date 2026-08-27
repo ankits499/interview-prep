@@ -1,24 +1,39 @@
-import { useEffect } from 'react'
-import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo } from 'react'
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { getQuestionById, getQuestionsForSubtopic, getTopicMeta } from '../content'
 import { getSubtopicMeta } from '../content/subtopics'
 import { Breadcrumbs } from '../components/Breadcrumbs'
 import { QuestionDetail } from '../components/QuestionDetail'
+import { orderQuestions, readQuestionViewState, writeQuestionViewState } from '../lib/questionOrdering'
 
 export function QuestionPage() {
   const { topicId = '', questionId = '' } = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const topic = getTopicMeta(topicId)
   const question = getQuestionById(questionId)
   const subtopicId = question?.subtopic ?? ''
   const subtopic = getSubtopicMeta(topicId, subtopicId)
-  const questions = getQuestionsForSubtopic(topicId, subtopicId)
+  const allQuestions = getQuestionsForSubtopic(topicId, subtopicId)
+  const view = useMemo(() => readQuestionViewState(searchParams), [searchParams])
+  const questions = useMemo(() => orderQuestions(allQuestions, view), [allQuestions, view])
   const index = questions.findIndex((q) => q.id === questionId)
+  const canonicalParams = useMemo(() => writeQuestionViewState(view, true), [view])
+  const canonicalSearch = canonicalParams.toString()
 
-  const goTo = (i: number) => {
+  const goTo = useCallback((i: number) => {
     const target = questions[i]
-    if (target) navigate(`/topic/${topicId}/question/${target.id}`)
-  }
+    if (target) navigate({ pathname: `/topic/${topicId}/question/${target.id}`, search: `?${canonicalSearch}` })
+  }, [canonicalSearch, navigate, questions, topicId])
+
+  useEffect(() => {
+    if (index === -1 && question) {
+      const relaxed = writeQuestionViewState({ ...view, difficulty: 'All', seniority: 'All' }, true)
+      setSearchParams(relaxed, { replace: true })
+      return
+    }
+    if (searchParams.toString() !== canonicalSearch) setSearchParams(canonicalParams, { replace: true })
+  }, [canonicalParams, canonicalSearch, index, question, searchParams, setSearchParams, view])
 
   useEffect(() => {
     function handler(e: KeyboardEvent) {
@@ -28,7 +43,7 @@ export function QuestionPage() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  })
+  }, [goTo, index])
 
   if (!topic || !question) return <Navigate to="/" replace />
 
@@ -38,7 +53,7 @@ export function QuestionPage() {
         crumbs={[
           { label: 'Home', to: '/' },
           { label: topic.label, to: `/topic/${topicId}` },
-          ...(subtopic ? [{ label: subtopic.label, to: `/topic/${topicId}/subtopic/${subtopicId}` }] : []),
+          ...(subtopic ? [{ label: subtopic.label, to: { pathname: `/topic/${topicId}/subtopic/${subtopicId}`, search: `?${canonicalSearch}` } }] : []),
           { label: `Question ${index + 1}` },
         ]}
       />

@@ -1,9 +1,9 @@
-import { Link } from 'react-router-dom'
+import { Link, type To } from 'react-router-dom'
 import { ChevronRight } from 'lucide-react'
 
 export interface Crumb {
   label: string
-  to?: string
+  to?: To
 }
 
 export function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {

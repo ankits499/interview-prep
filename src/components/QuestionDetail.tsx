@@ -72,14 +72,14 @@ export function QuestionDetail({ question, onPrev, onNext }: Props) {
         <button
           onClick={onPrev}
           disabled={!onPrev}
-          className="flex items-center gap-1 font-mono text-xs text-ink-muted disabled:opacity-30 hover:text-ink"
+          className="flex min-h-11 items-center gap-1 px-2 font-mono text-xs text-ink-muted disabled:opacity-30 hover:text-ink"
         >
           <ChevronLeft size={14} /> Prev
         </button>
         <button
           onClick={onNext}
           disabled={!onNext}
-          className="flex items-center gap-1 font-mono text-xs text-ink-muted disabled:opacity-30 hover:text-ink"
+          className="flex min-h-11 items-center gap-1 px-2 font-mono text-xs text-ink-muted disabled:opacity-30 hover:text-ink"
         >
           Next <ChevronRight size={14} />
         </button>

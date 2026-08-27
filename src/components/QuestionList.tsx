@@ -1,36 +1,31 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { Question } from '../types'
 import { useProgress } from '../hooks/useProgress'
-import { FilterBar, type Filters } from './FilterBar'
+import { orderQuestions, readQuestionViewState, writeQuestionViewState } from '../lib/questionOrdering'
+import { FilterBar } from './FilterBar'
 import { QuestionListItem } from './QuestionListItem'
-
-const difficultyOrder = ['Basic', 'Intermediate', 'Advanced', 'Expert']
 
 export function QuestionList({ questions }: { questions: Question[] }) {
   const { getStatus } = useProgress()
-  const [filters, setFilters] = useState<Filters>({ difficulty: 'All', seniority: 'All', sortBy: 'difficulty' })
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filters = useMemo(() => readQuestionViewState(searchParams), [searchParams])
+  const canonicalParams = useMemo(() => writeQuestionViewState(filters, true), [filters])
 
-  const filtered = useMemo(() => {
-    let list = questions.filter(
-      (q) =>
-        (filters.difficulty === 'All' || q.difficulty === filters.difficulty) &&
-        (filters.seniority === 'All' || q.seniority === filters.seniority),
-    )
-    if (filters.sortBy === 'alphabetical') {
-      list = [...list].sort((a, b) => a.question.localeCompare(b.question))
-    } else if (filters.sortBy === 'difficulty') {
-      list = [...list].sort((a, b) => difficultyOrder.indexOf(a.difficulty) - difficultyOrder.indexOf(b.difficulty))
-    }
-    return list
-  }, [questions, filters])
+  useEffect(() => {
+    if (searchParams.toString() !== canonicalParams.toString()) setSearchParams(canonicalParams, { replace: true })
+  }, [canonicalParams, searchParams, setSearchParams])
+
+  const filtered = useMemo(() => orderQuestions(questions, filters), [questions, filters])
+  const questionSearch = canonicalParams.toString()
 
   return (
     <div>
-      <FilterBar filters={filters} onChange={setFilters} />
+      <FilterBar filters={filters} onChange={(next) => setSearchParams(writeQuestionViewState(next, true), { replace: true })} />
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-sm text-ink-muted">No questions match these filters.</p>
       ) : (
-        filtered.map((q) => <QuestionListItem key={q.id} question={q} status={getStatus(q.id)} />)
+        filtered.map((q) => <QuestionListItem key={q.id} question={q} status={getStatus(q.id)} search={questionSearch} />)
       )}
     </div>
   )

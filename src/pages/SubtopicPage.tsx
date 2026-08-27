@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { getTopicMeta, getConceptsForSubtopic, getQuestionsForSubtopic } from '../content'
 import { getSubtopicsForTopic } from '../content/subtopics'
 import { Breadcrumbs } from '../components/Breadcrumbs'
@@ -11,7 +11,17 @@ import { QuestionList } from '../components/QuestionList'
 export function SubtopicPage() {
   const { topicId = '', subtopicId = '' } = useParams()
   const navigate = useNavigate()
-  const [tab, setTab] = useState<'concepts' | 'qna'>('concepts')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [fallbackTab, setFallbackTab] = useState<'concepts' | 'qna'>('concepts')
+  const tab = searchParams.get('tab') === 'qna' ? 'qna' : fallbackTab
+
+  const setTab = (next: 'concepts' | 'qna') => {
+    setFallbackTab(next)
+    const params = new URLSearchParams(searchParams)
+    if (next === 'qna') params.set('tab', 'qna')
+    else params.delete('tab')
+    setSearchParams(params, { replace: true })
+  }
 
   const topic = getTopicMeta(topicId)
   const subtopics = getSubtopicsForTopic(topicId)
@@ -67,14 +77,14 @@ export function SubtopicPage() {
         <button
           onClick={() => goTo(index - 1)}
           disabled={index <= 0}
-          className="flex items-center gap-1 font-mono text-xs text-ink-muted disabled:opacity-30 hover:text-ink"
+          className="flex min-h-11 items-center gap-1 px-2 font-mono text-xs text-ink-muted disabled:opacity-30 hover:text-ink"
         >
           <ChevronLeft size={14} /> Prev subtopic
         </button>
         <button
           onClick={() => goTo(index + 1)}
           disabled={index >= subtopics.length - 1}
-          className="flex items-center gap-1 font-mono text-xs text-ink-muted disabled:opacity-30 hover:text-ink"
+          className="flex min-h-11 items-center gap-1 px-2 font-mono text-xs text-ink-muted disabled:opacity-30 hover:text-ink"
         >
           Next subtopic <ChevronRight size={14} />
         </button>

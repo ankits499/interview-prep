@@ -6,7 +6,7 @@ interface Props {
 
 export function SubtopicTabs({ active, onChange, questionCount }: Props) {
   const tabClass = (tab: 'concepts' | 'qna') =>
-    `border-b-2 px-1 pb-2 font-mono text-xs uppercase tracking-wide transition-colors ${
+    `min-h-11 border-b-2 px-1 font-mono text-xs uppercase tracking-wide transition-colors ${
       active === tab ? 'border-accent text-accent' : 'border-transparent text-ink-muted hover:text-ink'
     }`
 

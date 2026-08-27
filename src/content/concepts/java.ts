@@ -1716,7 +1716,7 @@ const collectionsConcepts: ConceptCard[] = [
   remember: ['List.of()/Map.of() also reject null elements and throw immediately, unlike a mutable ArrayList', 'Collections.unmodifiableX is a thin wrapper, not a copy — genuine immutability needs a defensive copy'],
   interviewAngle: { q: 'Is Collections.unmodifiableList(list) actually immutable?', a: 'No — it only blocks mutation attempts made through that specific view reference. The underlying list can still be changed directly by anyone holding the original reference, and that change is visible through the "unmodifiable" view.' },
   readMinutes: 2,
-  related: ['immutability'],
+  related: ['defensive-copies-in-apis'],
 },
 
 // ── Design & Production Judgment ─────────────────────────────
@@ -1757,7 +1757,7 @@ const collectionsConcepts: ConceptCard[] = [
   whyItMatters: ['Without a copy, a caller mutating the returned list silently corrupts the object\'s internal state — one of the most common encapsulation leaks in real codebases'],
   remember: ['List.copyOf() / new ArrayList<>(source) for a defensive copy; Collections.unmodifiableList only prevents writes through that one reference, not the underlying corruption'],
   readMinutes: 1,
-  related: ['unmodifiable-and-immutable-collections', 'encapsulation'],
+  related: ['unmodifiable-and-immutable-collections'],
 },
 ]
 
@@ -5480,6 +5480,532 @@ log("x={}", x); // compiles to: log("x={}", new Object[]{x})`,
   },
 ]
 
+const modernJavaSupplementConcepts: ConceptCard[] = [
+  {
+    id: 'virtual-thread-pinning-jdk24',
+    title: 'Virtual-Thread Pinning Changed in JDK 24',
+    group: 'Virtual Threads in Production',
+    definition: 'JEP 491 changed HotSpot in JDK 24 so blocking inside synchronized code normally allows a virtual thread to unmount, removing the most common JDK 21-era pinning hazard while native or foreign-function calls can still pin.',
+    whyItMatters: [
+      'Migration advice must name the JDK version: replacing every synchronized block with ReentrantLock was a practical JDK 21 workaround, not a timeless virtual-thread rule.',
+    ],
+    remember: [
+      'Long or frequent pinning can still reduce scalability; use JFR virtual-thread pinning events and load tests instead of assuming the runtime upgrade fixed every bottleneck',
+      'Holding a monitor is still a correctness and contention concern even when it no longer pins a virtual thread',
+    ],
+    interviewAngle: {
+      q: 'Does synchronized always pin a virtual thread?',
+      a: "It did for blocking operations in JDK 21, but JDK 24's JEP 491 removed that normal case; native or foreign calls remain important pinning sources.",
+    },
+    readMinutes: 2,
+    related: ['virtual-threads-model', 'virtual-threads-dont-pool'],
+  },
+  {
+    id: 'scoped-values-context-propagation',
+    title: 'Scoped Values for Immutable Context',
+    group: 'Context Propagation',
+    definition: 'ScopedValue, finalized in JDK 25 by JEP 506, binds immutable contextual data for a bounded dynamic scope so child work can read it without the mutable, lifetime-prone semantics of ThreadLocal.',
+    whyItMatters: [
+      'Request IDs, principals, and tracing context can follow structured child tasks without copying a ThreadLocal into every virtual thread or risking stale values on reused platform threads.',
+    ],
+    remember: [
+      'Bindings are one-way and immutable to callees, which makes data flow easier to reason about than a mutable ThreadLocal',
+      'A binding is available only while the binding operation runs; do not treat it as a general global variable',
+      'JDK 25 is the final API; earlier releases exposed preview/incubator shapes that may differ',
+    ],
+    readMinutes: 2,
+    related: ['virtual-threads-threadlocal-caution', 'structured-concurrency-lifecycle'],
+  },
+  {
+    id: 'structured-concurrency-lifecycle',
+    title: 'Structured Concurrency Owns Task Lifetimes',
+    group: 'Structured Concurrency',
+    definition: 'Structured concurrency treats related subtasks as one lexical unit whose owner joins, cancels, and observes them together, preventing orphaned work from outliving the request that created it.',
+    whyItMatters: [
+      'On partial failure or timeout, sibling tasks can be cancelled as a group and the parent cannot accidentally return while child work continues consuming sockets or mutating state.',
+    ],
+    remember: [
+      'JEP 505 is a fifth preview in JDK 25, so production adoption requires preview enablement and acceptance that the API can still change',
+      'The value is lifecycle and failure structure, not making CPU work faster',
+      'Cancellation is cooperative: blocked APIs and task code must respond to interruption or cancellation',
+    ],
+    readMinutes: 2,
+    related: ['scoped-values-context-propagation', 'virtual-threads-model'],
+  },
+  {
+    id: 'virtual-thread-observability',
+    title: 'Virtual-Thread Observability at Scale',
+    group: 'Virtual Threads in Production',
+    definition: 'Virtual-thread incidents require aggregate evidence such as JFR events, scheduler and dependency metrics, and virtual-thread-aware dumps rather than treating millions of threads as a list to inspect one by one.',
+    whyItMatters: [
+      'A thread-per-request model improves stack-trace readability, but conventional platform-thread dashboards and unbounded full dumps can become misleading or too large at virtual-thread scale.',
+    ],
+    remember: [
+      'Correlate runnable carrier saturation with blocked virtual threads and downstream pool limits',
+      'A huge virtual-thread count is not itself a leak; look for tasks whose lifetime exceeds their owning request or that wait indefinitely',
+      'Name threads and preserve request correlation so dumps and JFR recordings retain business context',
+    ],
+    readMinutes: 2,
+    related: ['virtual-threads-model', 'structured-concurrency-lifecycle'],
+  },
+]
+
+const gcSupplementConcepts: ConceptCard[] = [
+  {
+    id: 'gc-allocation-stall-vs-pause',
+    title: 'Allocation Stall vs GC Pause',
+    group: 'Incident Signals',
+    definition: 'An allocation stall is application work waiting because the collector cannot provide memory quickly enough, whereas a reported stop-the-world pause suspends mutators for a collector phase; both hurt latency but imply different failure modes.',
+    whyItMatters: [
+      'Low-pause collectors can keep individual STW phases short yet still miss latency SLOs when concurrent relocation or marking falls behind a high allocation rate.',
+    ],
+    remember: [
+      'Correlate application latency with allocation rate, concurrent-cycle timing, and allocation-stall events—not only the longest pause',
+      'Repeated stalls can mean too little headroom, insufficient concurrent GC CPU, or a sudden live-set/allocation-rate change',
+    ],
+    readMinutes: 2,
+    related: ['gc-logging-interpretation', 'choosing-a-collector'],
+  },
+  {
+    id: 'gc-incident-evidence-order',
+    title: 'Collect GC Evidence Before Changing Flags',
+    group: 'Incident Workflow',
+    definition: 'A defensible GC investigation starts with unified GC logs, JFR, heap and process-memory trends, and a time-correlated workload signal before changing heap or collector flags.',
+    whyItMatters: [
+      'Tuning without a baseline can hide a leak, move latency elsewhere, or destroy the evidence needed to explain a one-off incident.',
+    ],
+    remember: [
+      'Use jcmd for targeted runtime evidence such as GC.heap_info, VM.native_memory when NMT is enabled, class histograms, and a carefully timed heap dump',
+      'Heap dumps can cause pauses and substantial I/O; check disk headroom and incident impact first',
+      'Compare post-GC live set and allocation rate across time, not one snapshot in isolation',
+    ],
+    readMinutes: 2,
+    related: ['gc-logging-interpretation', 'java-memory-leaks'],
+  },
+  {
+    id: 'heap-vs-native-memory-pressure',
+    title: 'Heap Pressure vs Native Memory Pressure',
+    group: 'Incident Signals',
+    definition: 'RSS or container-memory growth with a flat post-GC heap points away from a Java-heap leak and toward native consumers such as direct buffers, thread stacks, metaspace, JIT code cache, GC metadata, agents, or JNI allocations.',
+    whyItMatters: [
+      'Increasing -Xmx in a container can worsen native-memory OOM kills by leaving less headroom outside the heap.',
+    ],
+    remember: [
+      'Native Memory Tracking helps attribute JVM-managed native categories but has overhead and must be enabled before the incident',
+      'Direct-buffer limits and cleaner timing, thread count times -Xss, and classloader growth are common first checks',
+      'Container limits apply to the whole process, not merely the Java heap',
+    ],
+    readMinutes: 2,
+    related: ['java-memory-leaks', 'gc-incident-evidence-order'],
+  },
+  {
+    id: 'collector-choice-by-slo',
+    title: 'Choose Collectors by Measured SLO',
+    group: 'Collector Selection',
+    definition: 'Collector selection should start from an explicit latency percentile, throughput budget, heap and live-set size, allocation profile, and CPU headroom, then be validated on the deployed JDK with production-like load.',
+    whyItMatters: [
+      'A collector with tiny pauses can lose on throughput or concurrent CPU, while a throughput collector may be ideal for batch work even though its worst pause is longer.',
+    ],
+    remember: [
+      'The default is a baseline, not proof of fitness',
+      'Keep the JDK version in benchmark results because collector algorithms and defaults evolve',
+      'Size enough free headroom for concurrent collectors to finish before allocation consumes the remaining heap',
+    ],
+    readMinutes: 2,
+    related: ['choosing-a-collector', 'gc-allocation-stall-vs-pause'],
+  },
+  {
+    id: 'generational-zgc-versioning',
+    title: 'Generational ZGC Is Version-Sensitive',
+    group: 'Collector Selection',
+    definition: 'Generational ZGC arrived in JDK 21 as an opt-in mode and became the default ZGC mode in JDK 23, using separate young and old generations to reduce collection work for allocation-heavy workloads.',
+    whyItMatters: [
+      "A claim such as 'we use ZGC' is incomplete during diagnosis unless the JDK version and generational mode are known.",
+    ],
+    remember: [
+      'JEP 439 delivered generational ZGC in JDK 21; JEP 474 made it the default ZGC mode in JDK 23',
+      'Upgrade comparisons must control both JDK and mode or they may attribute a generational change to unrelated application work',
+      'Low pause time does not remove the need for allocation headroom and CPU capacity',
+    ],
+    readMinutes: 2,
+    related: ['zgc-concurrent-collector', 'collector-choice-by-slo'],
+  },
+]
+
+const performanceSupplementConcepts: ConceptCard[] = [
+  {
+    id: 'profile-cpu-vs-wall-clock',
+    title: 'CPU vs Wall-Clock Profiling',
+    group: 'Profiler Signal Selection',
+    definition: 'CPU profiling samples threads while executing on a core, whereas wall-clock profiling samples elapsed stacks including threads blocked on locks, sockets, disk, or scheduling.',
+    whyItMatters: [
+      'A latency incident caused by a slow downstream can look almost empty in a CPU flame graph because the affected threads spend their time parked rather than consuming CPU',
+      'Wall-clock profiles need filtering by thread or request path because idle pool threads can otherwise dominate the recording',
+    ],
+    remember: [
+      'High CPU or throughput regression: begin with CPU samples',
+      'High latency with modest CPU: begin with wall-clock stacks, thread states, and dependency timings',
+      'A profiler mode answers a specific question; collecting the wrong event can produce a technically accurate but irrelevant flame graph',
+    ],
+    readMinutes: 2,
+    related: ['async-profiler-flame-graphs'],
+  },
+  {
+    id: 'flame-graph-interpretation-traps',
+    title: 'Flame Graph Interpretation Traps',
+    group: 'Profiler Signal Selection',
+    definition: 'A flame graph aggregates sampled stacks, so box width represents sample share in the selected event and time window, not method duration, call count, or chronological order.',
+    whyItMatters: [
+      'A wide framework frame low in the graph may merely be a common ancestor; optimization candidates are usually wide leaf stacks whose work belongs to the application',
+      'A narrow but catastrophic once-per-minute pause may disappear in a long aggregate profile and must be isolated to the incident window',
+    ],
+    remember: [
+      'Read from wide leaf stacks toward their callers; do not blame the widest bottom frame',
+      'Flame graphs have no left-to-right timeline semantics',
+      'Compare equivalent traffic and time windows when using differential profiles',
+    ],
+    interviewAngle: {
+      q: 'A flame graph is 70% servlet framework frames. Does that prove the framework is the bottleneck?',
+      a: 'No. Those frames may be the common base of most request stacks; inspect the wide leaf work above them and compare against a baseline before attributing cost.',
+    },
+    readMinutes: 2,
+    related: ['profile-cpu-vs-wall-clock', 'async-profiler-flame-graphs'],
+  },
+  {
+    id: 'allocation-profile-retention-distinction',
+    title: 'Allocation Hotspot vs Retention Leak',
+    group: 'Profiler Signal Selection',
+    definition: 'An allocation profile identifies code creating bytes rapidly, while a heap dump and dominator analysis identify objects that remain reachable and retain memory.',
+    whyItMatters: [
+      'High allocation rate can drive frequent GC without leaking anything, while a slow leak can allocate little and still grow the post-GC heap floor',
+      'Optimizing the largest allocator does not fix a leak unless those allocations are also the objects being retained',
+    ],
+    remember: [
+      'GC pressure question: allocation profile and allocation rate',
+      'Rising live set question: heap dump, dominator tree, and GC roots',
+      'Correlate both views before claiming one code path causes both churn and retention',
+    ],
+    readMinutes: 2,
+    related: ['object-allocation-cost'],
+  },
+  {
+    id: 'jfr-event-threshold-blind-spots',
+    title: 'JFR Event Thresholds and Recording Profiles',
+    group: 'JFR in Production',
+    definition: 'JFR settings profiles control which events are enabled, their stack traces, sampling periods, and duration thresholds, so an absent event can mean the recording was not configured to capture it rather than the behavior never occurred.',
+    whyItMatters: [
+      'The default profile is low overhead but may omit short lock or I/O events that matter when repeated at high frequency',
+      'Turning on every event and stack trace during peak load can add avoidable overhead and create an unmanageable recording',
+    ],
+    remember: [
+      'Record continuously with conservative settings, then use a targeted short recording to test a narrowed hypothesis',
+      'Check the event configuration before interpreting zero events as zero activity',
+      'Preserve the exact incident interval; a long aggregate can dilute a short pathological phase',
+    ],
+    readMinutes: 2,
+    related: ['jfr'],
+  },
+  {
+    id: 'safepoint-time-to-safepoint',
+    title: 'Safepoint Pause vs Time to Safepoint',
+    group: 'JVM Runtime Stalls',
+    definition: 'A JVM stop-the-world operation includes both time waiting for all Java threads to reach a safepoint and time performing the operation after they arrive, and either component can dominate latency.',
+    whyItMatters: [
+      'Blaming GC for the full application pause can be wrong when most delay was a thread taking unusually long to reach a safepoint',
+      'JFR safepoint events and unified JVM logs separate synchronization delay from the operation itself',
+    ],
+    remember: [
+      'Correlate GC pause events with safepoint begin and end rather than using request latency alone',
+      'A long safepoint does not automatically imply heap pressure or a collector problem',
+      'Diagnose the triggering operation and the lagging thread before changing collector flags',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'coordinated-omission-load-tests',
+    title: 'Coordinated Omission in Load Tests',
+    group: 'Measurement Quality',
+    definition: 'A closed-loop load generator that waits for each response before issuing more work stops sampling the periods when the system is slow, systematically under-reporting queueing and tail latency.',
+    whyItMatters: [
+      'During a five-second stall, a real arrival stream keeps producing requests but a coordinated client goes quiet, making the outage look like one slow request instead of a queue of slow requests',
+      'Throughput and percentile claims are invalid if the offered-load model does not match real independent arrivals',
+    ],
+    remember: [
+      'Use an open or constant-arrival-rate model for capacity and tail-latency tests',
+      'Report offered load separately from achieved throughput',
+      'Watch queue depth and rejected work alongside latency percentiles',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'safe-performance-change-validation',
+    title: 'Safe Performance Change Validation',
+    group: 'Tuning Discipline',
+    definition: 'A safe performance change starts with a measured bottleneck, alters one material variable, and is validated under representative traffic with rollback criteria and guardrail metrics for latency, errors, memory, and downstream load.',
+    whyItMatters: [
+      'Increasing a pool, heap, or cache can move the bottleneck downstream, lengthen pauses, or consume container headroom while improving one headline metric',
+      'A canary and matched before-after profile distinguish a real gain from traffic mix, warm-up, or measurement noise',
+    ],
+    remember: [
+      'Write the hypothesis and expected metric movement before changing a flag',
+      'Change one dimension when possible and retain a fast rollback',
+      'Optimize service-level outcomes, not an isolated microbenchmark',
+    ],
+    readMinutes: 2,
+  },
+]
+
+const productionSupplementConcepts: ConceptCard[] = [
+  {
+    id: 'cgroup-cpu-throttling-jvm',
+    title: 'Cgroup CPU Quotas and Throttling',
+    group: 'Container Runtime',
+    definition: 'A container CPU limit is enforced as a cgroup time quota, so a JVM can be periodically throttled after consuming its quota even when the host still has idle cores.',
+    whyItMatters: [
+      'Throttling produces latency cliffs and runnable-thread queues that resemble application contention while host-level CPU dashboards can look healthy',
+      'JVM ergonomics use the processors visible to the process to size GC, JIT, and common pools, so incorrect container visibility can multiply runnable work beyond the quota',
+    ],
+    remember: [
+      'Check cgroup throttled periods and throttled time alongside container CPU usage',
+      'A CPU request affects scheduling entitlement; a CPU limit introduces hard throttling',
+      "Validate the JVM's ActiveProcessorCount against the quota and deployment expectations",
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'container-memory-budgeting',
+    title: 'Whole-Process Container Memory Budget',
+    group: 'Container Runtime',
+    definition: 'A safe container memory budget reserves the cgroup limit across heap, metaspace, code cache, direct/native allocations, thread stacks, GC structures, and JVM overhead rather than assigning nearly all of it to Xmx.',
+    whyItMatters: [
+      'Percentage-based heap ergonomics are a starting point, not proof of safety, because thread count and direct-buffer usage vary materially between services',
+      'RSS can exceed committed Java heap even without a leak, and cgroup enforcement acts on the process total',
+    ],
+    remember: [
+      'Budget from measured peak non-heap and native use plus safety margin',
+      'Track container working set or RSS and the cgroup limit in addition to heap metrics',
+      'Increasing Xmx can convert a recoverable Java heap OOM into an unlogged SIGKILL',
+    ],
+    readMinutes: 2,
+    related: ['oom-killer-vs-heap-oom'],
+  },
+  {
+    id: 'native-memory-tracking-triage',
+    title: 'Native Memory Tracking Triage',
+    group: 'Memory Diagnostics',
+    definition: 'Native Memory Tracking categorizes JVM-managed native reservations and commitments and supports baseline diffs, helping separate heap, class metadata, thread stacks, code cache, and internal JVM growth.',
+    whyItMatters: [
+      'A heap dump cannot explain native growth, and RSS alone cannot attribute it',
+      'NMT does not track every allocation made by arbitrary JNI libraries, so an unexplained RSS gap remains a useful clue rather than proof that memory is absent',
+    ],
+    remember: [
+      'Enable NMT at JVM startup; it cannot be retrofitted after the incident begins',
+      'Use baseline and summary.diff over time instead of comparing unrelated snapshots',
+      'Reserved address space is not the same as committed physical memory',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'incident-evidence-before-restart',
+    title: 'Capture Evidence Before Restart',
+    group: 'Incident Response',
+    definition: 'A restart is a mitigation that destroys volatile diagnostic state, so responders should first capture bounded low-risk evidence when the service and customer impact allow it.',
+    whyItMatters: [
+      'Thread stacks, JFR buffers, pool state, cgroup counters, and process mappings often contain the only proof of a transient failure',
+      'Repeated blind restarts create recovery without learning and make recurrence likely',
+    ],
+    remember: [
+      'Stabilize user impact first when necessary; evidence collection must never block urgent mitigation',
+      'Automate a small incident bundle: timestamps, pod events, limits, metrics window, thread dumps, and JFR dump',
+      'Record the exact instance and time range so telemetry can be correlated later',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'observability-cardinality-budget',
+    title: 'Metric Cardinality Is a Reliability Budget',
+    group: 'Observability',
+    definition: 'Every unique metric label combination creates a time series, so unbounded values such as user IDs, raw URLs, exception messages, or trace IDs can overload the monitoring pipeline and make dashboards fail during the incident they should explain.',
+    whyItMatters: [
+      'Cardinality often grows fastest during failures when novel error values appear, coupling application distress to observability distress',
+      'Dimensions needed for one-off diagnosis usually belong in sampled traces or structured logs rather than always-on metrics',
+    ],
+    remember: [
+      'Use bounded route templates, status classes, operation names, and controlled error categories as labels',
+      'Monitor active-series count and dropped telemetry as health signals',
+      'Never put a trace ID or customer ID in a metric label',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'slo-burn-rate-alerting',
+    title: 'SLO Burn-Rate Alerting',
+    group: 'Observability',
+    definition: 'Burn rate measures how quickly a service consumes its allowed error budget, enabling alerts that combine a fast window for severe outages with a slow window for persistent degradation.',
+    whyItMatters: [
+      'Static CPU or latency thresholds page on harmless resource changes and miss user-visible failures that occur below the threshold',
+      'Multi-window burn alerts tie urgency to both impact and duration, reducing noisy pages without hiding slow incidents',
+    ],
+    remember: [
+      'Define the service-level indicator from user outcomes before choosing infrastructure symptoms',
+      'Page on fast budget burn; ticket or investigate slower sustained burn',
+      'Keep resource saturation alerts as diagnostic or capacity signals, not the sole definition of availability',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'jfr-incident-ring-buffer',
+    title: 'Always-On JFR as an Incident Ring Buffer',
+    group: 'Incident Response',
+    definition: 'A bounded continuous JFR recording retains a rolling window of JVM events that can be dumped when an alert fires, preserving the minutes before a failure without unbounded disk growth.',
+    whyItMatters: [
+      'Post-incident attachment misses the lead-up, such as rising contention, allocation bursts, or compiler activity',
+      'A maximum age and size bound turns continuous recording into predictable operational overhead',
+    ],
+    remember: [
+      'Test the dump path and retention limit before relying on it during an outage',
+      'Copy the recording off an ephemeral pod before deletion or restart',
+      'Use a low-overhead continuous profile and escalate briefly only for a focused hypothesis',
+    ],
+    readMinutes: 2,
+    related: ['incident-evidence-before-restart'],
+  },
+]
+
+const asyncLifecycleSupplementConcepts: ConceptCard[] = [
+  {
+    id: 'completablefuture-cancellation-boundary',
+    title: 'CompletableFuture Cancellation Is Not Task Cancellation',
+    group: 'Cancellation & Deadlines',
+    definition: 'Cancelling a CompletableFuture completes that stage with CancellationException but does not reliably interrupt or stop the supplier that is already running underneath it.',
+    whyItMatters: [
+      'CompletableFuture.cancel(true) treats mayInterruptIfRunning as irrelevant, unlike a Future returned directly by ExecutorService.submit',
+      'A cancelled request can therefore keep consuming a thread, connection, or downstream quota unless the operation has its own cancellation mechanism',
+    ],
+    remember: [
+      'Cancellation flows to dependent stages as exceptional completion, not automatically backward to an upstream stage',
+      'Design cancellation into the underlying I/O client or task through deadlines, interrupt-aware blocking, or an explicit token',
+    ],
+    readMinutes: 2,
+    related: ['future-limitations', 'structured-concurrency-intro'],
+  },
+  {
+    id: 'completablefuture-timeout-does-not-stop-work',
+    title: 'Timeout Completion Does Not Stop Work',
+    group: 'Cancellation & Deadlines',
+    definition: "orTimeout and completeOnTimeout race a timer against a CompletableFuture's result, but winning that race changes the future's outcome without necessarily terminating the underlying operation.",
+    whyItMatters: [
+      'A timed-out HTTP or database call can continue occupying capacity after the caller has returned, causing retry amplification and resource exhaustion',
+      "The downstream client's own connect, read, and request deadlines remain essential",
+    ],
+    remember: [
+      'orTimeout completes exceptionally with TimeoutException; completeOnTimeout supplies a fallback value',
+      'A user-facing deadline and a resource-reclaiming cancellation are separate requirements',
+    ],
+    readMinutes: 2,
+    related: ['completablefuture-cancellation-boundary'],
+  },
+  {
+    id: 'executor-dependency-bulkheads',
+    title: 'Executors as Dependency Bulkheads',
+    group: 'Isolation & Capacity',
+    definition: 'Separate bounded executors for independent blocking dependencies prevent one slow downstream from consuming every worker needed by unrelated work.',
+    whyItMatters: [
+      'One shared pool couples the failure domains of every dependency using it',
+      'Per-dependency queue depth, rejection, and saturation metrics make overload visible and controllable',
+    ],
+    remember: [
+      "Bulkhead sizes should reflect each dependency's concurrency budget, latency, and connection limits",
+      'Isolation moves contention to an intentional boundary; it does not create more downstream capacity',
+    ],
+    readMinutes: 2,
+    related: ['threadpool-rejection-policy', 'forkjoin-common-pool-sizing'],
+  },
+  {
+    id: 'threadpool-nested-blocking-starvation',
+    title: 'Nested Submission Starvation',
+    group: 'Isolation & Capacity',
+    definition: 'A bounded executor can deadlock itself when every worker submits another task to the same pool and blocks waiting for that child while no worker remains to run the queued children.',
+    whyItMatters: [
+      'Thread dumps resemble a slow system rather than a lock cycle: all workers wait in Future.get or join while the required work sits queued',
+      'Adding threads only postpones the failure if nesting can consume the new capacity too',
+    ],
+    remember: [
+      'Compose without blocking, execute child work inline, or use a deliberately separate executor',
+      'This is thread-starvation deadlock, not a monitor deadlock, so ordinary deadlock detectors may report nothing',
+    ],
+    readMinutes: 2,
+    related: ['executor-dependency-bulkheads'],
+  },
+]
+
+const concurrentCollectionsCorrectnessSupplementConcepts: ConceptCard[] = [
+  {
+    id: 'concurrent-collection-linearizability-boundary',
+    title: 'Linearizable Operations, Non-Atomic Workflows',
+    group: 'Correctness Contracts',
+    definition: 'A concurrent collection can make each documented operation appear atomic at one instant while a sequence of individually atomic calls still exposes a race between them.',
+    whyItMatters: [
+      'containsKey followed by put, or get followed by put, is still check-then-act unless replaced by putIfAbsent, compute, merge, or external coordination',
+      'Thread-safe storage does not automatically preserve a business invariant spanning multiple keys or multiple collections',
+    ],
+    remember: [
+      'Choose one atomic API operation that expresses the state transition whenever possible',
+      'For cross-key invariants, redesign ownership or introduce a lock/transaction around the whole invariant',
+    ],
+    readMinutes: 2,
+    related: ['chm-compute-atomicity'],
+  },
+  {
+    id: 'lockfree-progress-and-reclamation',
+    title: 'Lock-Free Is a Progress Guarantee',
+    group: 'Lock-Free Correctness',
+    definition: 'Lock-free means the system as a whole keeps making progress despite contention, not that every operation is wait-free or that CAS retries are free.',
+    whyItMatters: [
+      'One unlucky thread may retry indefinitely while other threads succeed, so lock-free does not guarantee per-thread latency',
+      'CAS-heavy algorithms can lose to a well-designed lock under extreme contention because failed retries consume CPU and cache bandwidth',
+    ],
+    remember: [
+      'Wait-free guarantees every operation completes in bounded steps; lock-free only guarantees some operation completes',
+      'GC makes node reclamation safer than in unmanaged languages, but logical removal and helping are still required for correct traversal',
+    ],
+    readMinutes: 2,
+    related: ['concurrentlinkedqueue-cas'],
+  },
+  {
+    id: 'aba-problem-and-versioned-cas',
+    title: 'ABA Problem in CAS Algorithms',
+    group: 'Lock-Free Correctness',
+    definition: 'ABA occurs when a CAS sees the same reference or value it observed earlier even though another thread changed it to B and back to A, hiding an intervening state transition the algorithm depended on.',
+    whyItMatters: [
+      'Reference equality alone cannot prove that a node or state was untouched between the read and CAS',
+      'Version stamps, immutable state objects, or algorithm-specific marking prevent a reused value from masquerading as the original state',
+    ],
+    remember: [
+      'AtomicStampedReference pairs a reference with a version; AtomicMarkableReference pairs it with a boolean mark',
+      'Java GC prevents use-after-free but does not by itself eliminate logical ABA when references or pooled nodes can reappear',
+    ],
+    readMinutes: 2,
+    related: ['lockfree-progress-and-reclamation'],
+  },
+  {
+    id: 'chm-longadder-frequency-map',
+    title: 'ConcurrentHashMap plus LongAdder',
+    group: 'Contention-Aware Patterns',
+    definition: 'A ConcurrentHashMap whose values are LongAdders forms a scalable frequency map because key creation is atomic and hot increments spread contention across striped cells.',
+    whyItMatters: [
+      'AtomicLong gives an exact linearizable update but every writer contends on one memory location',
+      'LongAdder sum is not an atomic snapshot, so the pattern suits metrics and frequencies rather than balances or strict limits',
+    ],
+    remember: [
+      'Canonical update: map.computeIfAbsent(key, k -> new LongAdder()).increment()',
+      'Choose AtomicLong when an exact compare-and-set or instant total is part of correctness',
+    ],
+    readMinutes: 2,
+    related: ['chm-compute-atomicity'],
+  },
+]
+
 export const javaConcepts: ConceptSection[] = [
   {
     id: 'java-concept-fundamentals',
@@ -5628,5 +6154,46 @@ export const javaConcepts: ConceptSection[] = [
     intro: 'The deepest layer: what javac and the JIT actually produce, and the language tricks (autoboxing, varargs, invokedynamic) whose bytecode reality differs from their source-level appearance.',
     concepts: advancedInternalsConcepts,
   },
+  {
+    id: 'java-concept-modern-java-supplement',
+    subtopic: 'modern-java',
+    title: 'Modern Java Concurrency Updates',
+    intro: 'Java 21-25 evolves thread-per-request concurrency beyond virtual threads, with version-sensitive changes to pinning, context propagation, and task lifetimes that matter in production migrations.',
+    concepts: modernJavaSupplementConcepts,
+  },
+  {
+    id: 'java-concept-gc-supplement',
+    subtopic: 'gc',
+    title: 'Production GC Diagnostics',
+    intro: 'Collector mechanics become operationally useful when they guide evidence collection, distinguish heap pressure from native memory, and connect pause or allocation symptoms to workload SLOs.',
+    concepts: gcSupplementConcepts,
+  },
+  {
+    id: 'java-concept-performance-supplement',
+    subtopic: 'performance',
+    title: 'Production Performance Diagnostics',
+    intro: 'Evidence-first performance diagnosis: choose the right profiler signal, interpret it correctly, and validate changes against production constraints rather than tuning by folklore.',
+    concepts: performanceSupplementConcepts,
+  },
+  {
+    id: 'java-concept-production-supplement',
+    subtopic: 'production',
+    title: 'Container and Incident Operations',
+    intro: 'Operational patterns for diagnosing JVM incidents in containers while preserving evidence, bounding blast radius, and avoiding fixes that merely move the failure.',
+    concepts: productionSupplementConcepts,
+  },
+  {
+    id: 'java-concept-async-lifecycle-supplement',
+    subtopic: 'async',
+    title: 'Async Lifecycle & Isolation',
+    intro: 'Senior async design is less about chaining callbacks and more about bounding work, propagating cancellation, and containing failure.',
+    concepts: asyncLifecycleSupplementConcepts,
+  },
+  {
+    id: 'java-concept-concurrent-collections-correctness-supplement',
+    subtopic: 'concurrent-collections',
+    title: 'Concurrent Collection Correctness',
+    intro: 'Concurrent collections make individual operations safe; senior designs still have to reason about compound invariants, progress, and contention.',
+    concepts: concurrentCollectionsCorrectnessSupplementConcepts,
+  },
 ]
-

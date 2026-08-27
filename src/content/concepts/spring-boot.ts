@@ -2787,6 +2787,843 @@ Counter.builder("orders.placed")
   },
 ]
 
+const sbAopConcepts: ConceptCard[] = [
+  {
+    id: 'spring-aop-proxy-boundary',
+    title: 'Spring AOP Is Proxy-Based',
+    group: 'Proxy Mechanics',
+    definition: 'Spring AOP intercepts method calls that enter a Spring-managed proxy, so direct calls on an unproxied object or internal calls through this bypass advice.',
+    whyItMatters: [
+      'Annotations such as @Transactional, @Async, @Cacheable, and custom aspects can appear present yet do nothing when invocation never crosses the proxy.',
+    ],
+    remember: [
+      'Self-invocation is ordinary Java dispatch on this, not a second trip through the proxy',
+      "Objects created with new are outside Spring's proxy lifecycle",
+      'Prefer moving the advised operation behind a separate bean boundary; self-injection or AopContext.currentProxy couples code to the framework',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'jdk-vs-cglib-aop-proxies',
+    title: 'JDK vs CGLIB Proxies',
+    group: 'Proxy Mechanics',
+    definition: 'JDK dynamic proxies implement interfaces while CGLIB proxies subclass the target class; Spring Boot defaults spring.aop.proxy-target-class to true, favoring class-based proxies unless configured otherwise.',
+    whyItMatters: [
+      'The mechanism changes what can be intercepted and sometimes what type callers can inject or cast to.',
+    ],
+    remember: [
+      'CGLIB cannot override final methods or subclass a final class',
+      'Private methods are not externally dispatchable proxy join points',
+      'Depending on concrete implementation types makes switching to JDK proxies more disruptive',
+    ],
+    readMinutes: 2,
+    related: ['spring-aop-proxy-boundary'],
+  },
+  {
+    id: 'aop-around-proceed-contract',
+    title: 'Around Advice Owns Control Flow',
+    group: 'Advice Semantics',
+    definition: 'An @Around advice decides whether, when, and how many times ProceedingJoinPoint.proceed executes, so it can alter return values, exceptions, timing, and side effects rather than merely observe them.',
+    whyItMatters: [
+      'A logging or metrics aspect that forgets proceed, swallows an exception, or retries a non-idempotent method can change business behavior.',
+    ],
+    remember: [
+      'Use try/finally for duration and cleanup so failures are measured',
+      'Rethrow unless the aspect explicitly owns recovery semantics',
+      'Do not put retries in generic around advice without idempotency and transaction-boundary design',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'aop-pointcut-contract',
+    title: 'Pointcuts Are an Operational Contract',
+    group: 'Pointcuts & Scope',
+    definition: "A pointcut defines the exact runtime surface an aspect affects, making package, annotation, visibility, and argument matching part of the application's behavior and cost model.",
+    whyItMatters: [
+      "A broad execution(* *(..)) expression can proxy infrastructure beans, add hot-path overhead, leak sensitive arguments, or recursively advise the aspect's own collaborators.",
+    ],
+    remember: [
+      'Prefer explicit marker annotations or narrow package-and-method expressions',
+      'Test both positive and negative matches during refactors',
+      'Bind only data the advice needs; logging arbitrary arguments risks secrets and expensive toString calls',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'aop-advisor-ordering',
+    title: 'Advisor Ordering Changes Semantics',
+    group: 'Composition',
+    definition: 'When multiple interceptors wrap the same invocation, @Order or Ordered controls nesting, with lower values having higher precedence and therefore running earlier on entry and later on exit.',
+    whyItMatters: [
+      'Whether retry, transaction, security, tracing, and metrics advice is inside or outside another interceptor changes attempt counts, transaction scope, spans, and recorded latency.',
+    ],
+    remember: [
+      'Entry order is the reverse of exit order because advisors form nested wrappers',
+      'Do not rely on incidental component-scan order',
+      'Define whether metrics measure one attempt or the whole retry operation before choosing order',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'spring-aop-vs-aspectj-weaving',
+    title: 'Spring AOP vs AspectJ Weaving',
+    group: 'Design Boundaries',
+    definition: 'Spring AOP advises method execution on Spring beans through proxies, whereas AspectJ weaving can instrument constructors, fields, private methods, and non-Spring objects at compile or load time.',
+    whyItMatters: [
+      'Switching to weaving can solve join-point limitations but introduces build or agent complexity, broader blast radius, and harder debugging.',
+    ],
+    remember: [
+      'Use ordinary composition or decorators before escalating solely to intercept an internal helper',
+      'Spring AOP is usually sufficient for service-boundary concerns',
+      'Weaving must be an explicit architecture and operations choice, not a hidden workaround',
+    ],
+    readMinutes: 2,
+    related: ['spring-aop-proxy-boundary'],
+  },
+]
+
+const sbPropertiesProfilesConcepts: ConceptCard[] = [
+  {
+    id: 'boot-property-source-precedence',
+    title: 'Property Sources Have Precedence',
+    group: 'Resolution & Precedence',
+    definition: 'Spring Boot resolves a property from an ordered Environment, so higher-precedence command-line, system, environment, test, or imported sources can override values from packaged configuration.',
+    whyItMatters: ['The value visible in application.yml may not be the value a bean receives in production.'],
+    remember: [
+      'Reason about the effective Environment, not one file',
+      "Later Config Data documents can override earlier documents subject to Boot's loading rules",
+      'Use Actuator env and configprops endpoints cautiously because configuration can contain secrets',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'configuration-properties-type-safe-binding',
+    title: 'Type-Safe @ConfigurationProperties',
+    group: 'Binding & Validation',
+    definition: '@ConfigurationProperties binds a namespace into a structured object with relaxed name conversion, nested values, collections, durations, and data sizes, providing a coherent alternative to scattered @Value expressions.',
+    whyItMatters: [
+      'Centralized typed configuration is refactorable, testable, documentable through metadata, and easier to validate at startup.',
+    ],
+    remember: [
+      'Prefer immutable records or constructor-bound classes for configuration that should not change after startup',
+      'In current Spring Boot, a single parameterized constructor is inferred for constructor binding; @ConstructorBinding is mainly needed to select among multiple constructors',
+      'Register with @ConfigurationPropertiesScan or @EnableConfigurationProperties instead of relying on incidental component scanning',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'configuration-properties-fail-fast-validation',
+    title: 'Validate Configuration at Startup',
+    group: 'Binding & Validation',
+    definition: 'Adding @Validated and Jakarta Bean Validation constraints to a configuration-properties type turns missing or invalid deployment configuration into a context-startup failure.',
+    whyItMatters: [
+      'Failing a rollout before traffic is safer than discovering an invalid timeout, URL, or pool size on the first affected request.',
+    ],
+    remember: [
+      'Use @Valid on nested objects when their constraints must cascade',
+      'A default value can conceal a missing required setting, so distinguish deliberate defaults from deployment obligations',
+      'Cross-field invariants often need a class-level constraint or explicit validation method',
+    ],
+    readMinutes: 2,
+    related: ['configuration-properties-type-safe-binding'],
+  },
+  {
+    id: 'boot-config-data-imports',
+    title: 'Config Data Imports and Optional Locations',
+    group: 'External Configuration',
+    definition: "spring.config.import loads additional configuration such as files, config trees, or supported remote providers into Boot's Config Data phase, with optional: explicitly allowing an unavailable location.",
+    whyItMatters: [
+      'Marking a required secret or central configuration import optional can let an application boot with unsafe defaults, while making a developer-only file mandatory can break every clean environment.',
+    ],
+    remember: [
+      'Choose optional based on business criticality, not convenience',
+      'Config trees map mounted files to property names and fit container secret mounts',
+      'Imports participate in precedence; document which source is authoritative',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'profiles-select-bean-graphs',
+    title: 'Profiles Select Configuration, Not Deployment Identity',
+    group: 'Profiles',
+    definition: 'Profiles conditionally activate configuration documents and beans, but using them as an ever-growing encoding of region, tenant, feature flags, and environment creates combinatorial and untestable bean graphs.',
+    whyItMatters: [
+      'An application that works only under an undocumented profile combination is difficult to reproduce, test, and promote safely.',
+    ],
+    remember: [
+      'Use profiles for a small number of coherent runtime modes',
+      'Use external properties or a feature-management system for independent operational switches',
+      'Never use a production profile as the only guard preventing dangerous development beans from loading',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'profile-groups-and-activation',
+    title: 'Profile Groups and Document Activation',
+    group: 'Profiles',
+    definition: 'Profile groups let one logical profile activate a declared set of profiles, while spring.config.activate.on-profile restricts a Config Data document to a profile expression.',
+    whyItMatters: [
+      'Groups make supported combinations explicit, but hidden transitive activation can still surprise operators unless effective profiles are observable.',
+    ],
+    remember: [
+      'spring.profiles.active and spring.profiles.default belong in non-profile-specific documents; they cannot bootstrap themselves from a document that is already conditional',
+      'Prefer on-profile for multi-document YAML activation rather than legacy document-level spring.profiles',
+      'Log effective profiles and cover supported groups with context-startup tests',
+    ],
+    readMinutes: 2,
+    related: ['profiles-select-bean-graphs'],
+  },
+  {
+    id: 'secrets-are-not-ordinary-properties',
+    title: 'Secrets Need Exposure Controls',
+    group: 'External Configuration',
+    definition: 'Spring can bind secrets like any other property, but their source, rotation, logging, endpoint exposure, and memory lifetime require stricter controls than ordinary configuration.',
+    whyItMatters: [
+      'A correctly resolved credential can still leak through startup logs, exception messages, Actuator endpoints, diagnostics, or configuration-object toString methods.',
+    ],
+    remember: [
+      'Prefer a secret manager or mounted secret over committing credentials to profile files',
+      'Sanitize diagnostic endpoints and restrict their access',
+      'Avoid logging full configuration objects and design rotation explicitly',
+    ],
+    readMinutes: 2,
+  },
+]
+
+const sbWebfluxConcepts: ConceptCard[] = [
+  {
+    id: 'webflux-event-loop-blocking',
+    title: 'Event Loops and Blocking Contamination',
+    group: 'Execution Model',
+    definition: 'WebFlux commonly runs many requests on a small set of event-loop threads, so one blocking call can stall unrelated connections assigned to the same loop.',
+    whyItMatters: [
+      'A blocking JDBC driver, filesystem call, or hidden future.get() defeats the concurrency model even when the controller returns Mono',
+      'Low CPU with rising event-loop queueing is a common signature because threads are waiting rather than computing',
+    ],
+    remember: [
+      'Reactive types do not make blocking work non-blocking',
+      'Use a reactive driver where possible; isolate unavoidable blocking work on a boundedElastic scheduler',
+      'BlockHound can detect many blocking calls on non-blocking schedulers during tests',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'webflux-scheduler-boundaries',
+    title: 'publishOn, subscribeOn, and boundedElastic',
+    group: 'Execution Model',
+    definition: 'subscribeOn influences where subscription and upstream source work begin, while publishOn moves downstream signals after that operator to another scheduler.',
+    whyItMatters: [
+      'Placing publishOn after a blocking call does nothing to protect the event loop because the damage already occurred upstream',
+      'boundedElastic bounds thread growth and queueing; creating ad-hoc schedulers per request leaks resources and hides saturation',
+    ],
+    remember: [
+      'Wrap a blocking source with Mono.fromCallable and place subscribeOn boundedElastic beside it',
+      'Scheduler hops add queues and context-switch cost, so do not scatter them defensively',
+      'Monitor boundedElastic queueing because isolation can turn a stall into a hidden backlog',
+    ],
+    readMinutes: 2,
+    related: ['webflux-event-loop-blocking'],
+  },
+  {
+    id: 'reactor-backpressure-boundaries',
+    title: 'Backpressure Has Protocol Boundaries',
+    group: 'Demand and Flow Control',
+    definition: 'Reactive Streams demand controls how many elements an upstream Publisher emits, but it cannot force a non-cooperative external source or an HTTP client already sending bytes to slow down.',
+    whyItMatters: [
+      'A database driver that honors demand can reduce rows in flight, while a legacy callback API may require an explicit bounded buffer or load shedding',
+      'Returning Flux over HTTP does not give end-to-end business backpressure unless every stage and transport participates',
+    ],
+    remember: [
+      'Operators such as buffer and onBackpressureBuffer move pressure into memory; they do not remove it',
+      'Every buffer needs a capacity, overflow policy, and metric',
+      'Prefetch changes throughput and memory usage and can make downstream demand look less immediate',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'reactor-cold-publishers-subscription',
+    title: 'Cold Publishers and Duplicate Side Effects',
+    group: 'Demand and Flow Control',
+    definition: 'A cold Mono or Flux executes its source independently for each subscription, so multiple subscriptions can repeat a database query, HTTP call, or mutation.',
+    whyItMatters: [
+      'Logging, metrics, or manual subscribe calls can accidentally trigger work twice when the pipeline is assumed to be a stored result',
+      'cache and share change lifecycle semantics and can retain stale values or replay failures if used without bounds',
+    ],
+    remember: [
+      'Build and return the pipeline; application code should rarely call subscribe itself',
+      'Use cache with an explicit TTL only when replaying the result is correct',
+      'doOnNext observes a signal; it does not execute the publisher without a subscription',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'reactor-context-propagation',
+    title: 'Reactor Context vs ThreadLocal',
+    group: 'Context and Correctness',
+    definition: 'Reactor Context is immutable metadata attached to a subscription, whereas ThreadLocal state belongs to a thread and can disappear or leak when signals move across event-loop and worker threads.',
+    whyItMatters: [
+      'MDC correlation IDs, security identity, and tenant metadata need deliberate propagation across reactive operators',
+      'Reading context at assembly time fails because the subscriber-specific context does not exist until subscription',
+    ],
+    remember: [
+      'Use deferContextual to read and contextWrite to enrich context near subscription',
+      'Automatic context propagation helps bridge supported ThreadLocals but still needs testing across custom libraries',
+      "Clear or restore MDC bridges so pooled threads do not leak one request's identity into another",
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'reactor-cancellation-resource-cleanup',
+    title: 'Cancellation and Resource Cleanup',
+    group: 'Context and Correctness',
+    definition: 'Client disconnects, timeouts, and take-style operators cancel subscriptions, so resource cleanup must run on cancel as well as normal completion and error.',
+    whyItMatters: [
+      'A finally-like cleanup attached only to success leaks connections or temporary state when a request is abandoned',
+      'Cancellation is cooperative; a blocking call already running may continue even after the reactive chain is cancelled',
+    ],
+    remember: [
+      'Use using or usingWhen for synchronous or asynchronous resource lifecycles',
+      'doFinally observes complete, error, and cancel signals',
+      'A timeout stops downstream waiting but does not guarantee the underlying remote operation was aborted',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'webflux-error-operator-semantics',
+    title: 'Error Operators Change the Stream Contract',
+    group: 'Failure Handling',
+    definition: 'onErrorResume replaces a failed publisher, retry resubscribes to its source, and onErrorContinue skips compatible failing elements, so each operator changes side-effect and ordering semantics rather than merely handling an exception.',
+    whyItMatters: [
+      'retry can repeat an HTTP write or database mutation because resubscription re-executes the cold source',
+      'onErrorContinue is operator-dependent and can silently produce partial output, making it dangerous as a blanket recovery policy',
+    ],
+    remember: [
+      'Retry only idempotent work and use bounded attempts with backoff and jitter',
+      'Place fallback at the boundary where degraded behavior is actually valid',
+      'Log once at the terminal ownership boundary to avoid duplicate stack traces at every operator',
+    ],
+    readMinutes: 2,
+  },
+]
+
+const sbSpringCloudConcepts: ConceptCard[] = [
+  {
+    id: 'spring-cloud-config-startup-policy',
+    title: 'Config Import and Startup Policy',
+    group: 'Centralized Configuration',
+    definition: 'Spring Cloud Config is an early startup dependency whose import can be mandatory and fail-fast or optional with local defaults, and that choice defines availability during control-plane failure.',
+    whyItMatters: [
+      'Failing open with stale or default security and endpoint settings can be worse than not starting',
+      'Failing closed for every cosmetic setting can turn a Config Server outage into a fleet-wide restart outage',
+    ],
+    remember: [
+      'Classify configuration by whether stale or absent values are safe',
+      'Use bounded startup retry with jitter; unlimited retries hide a permanently broken deployment',
+      'Pin and audit the exact config revision consumed by each instance',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'spring-cloud-config-refresh-consistency',
+    title: 'Runtime Refresh Is Not Atomic Fleet-Wide',
+    group: 'Centralized Configuration',
+    definition: 'A refresh updates participating beans inside one instance, but instances receive and apply the change at different times, creating a mixed-version configuration window across the fleet.',
+    whyItMatters: [
+      'Changing coupled values separately can expose impossible combinations within one process or between callers and callees',
+      'RefreshScope recreates scoped beans and can surprise code that caches references or assumes immutable startup configuration',
+    ],
+    remember: [
+      'Version related settings as one validated object',
+      'Use progressive rollout and compatibility across old and new values',
+      'Secrets and schema-affecting changes often deserve restart or coordinated rollout rather than blind refresh',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'service-discovery-staleness',
+    title: 'Discovery Cache Staleness and Deregistration Delay',
+    group: 'Service Discovery',
+    definition: 'Client-side discovery caches registry membership for availability and performance, so terminated or unhealthy instances can remain selectable until heartbeats, eviction, and local-cache refresh converge.',
+    whyItMatters: [
+      'Registry health does not imply every client has the same current view',
+      'Aggressive eviction improves freshness but can remove healthy instances during a registry or network partition',
+    ],
+    remember: [
+      'Measure stale-target failures and registry propagation time during deploys',
+      'Coordinate graceful deregistration, readiness, and connection draining',
+      "Retries must select a different instance and remain within the caller's deadline",
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'spring-cloud-loadbalancer-supplier-chain',
+    title: 'LoadBalancer Supplier Filtering and Caching',
+    group: 'Service Discovery',
+    definition: 'Spring Cloud LoadBalancer builds candidate instances through ServiceInstanceListSupplier stages such as discovery, caching, health checks, zones, and weights, and stage order changes the effective routing set.',
+    whyItMatters: [
+      'Caching after a dynamic health filter can preserve unhealthy results longer than intended, while per-request health probes can overload dependencies',
+      'Zone preference needs a fallback or one zone outage can become a client-side total outage despite healthy remote instances',
+    ],
+    remember: [
+      'Observe selected instance, zone, and empty-supplier outcomes without high-cardinality instance labels',
+      'Avoid stacking independent caches in discovery and load-balancer layers without understanding total staleness',
+      'Test no-instance and all-local-instances-unhealthy behavior',
+    ],
+    readMinutes: 2,
+    related: ['service-discovery-staleness'],
+  },
+  {
+    id: 'gateway-filter-ordering-body-buffering',
+    title: 'Gateway Filter Ordering and Body Buffering',
+    group: 'Gateway Execution',
+    definition: 'Spring Cloud Gateway composes global and route filters into an ordered reactive chain, and filters that read or rewrite request bodies must buffer and re-expose a one-consumption data stream.',
+    whyItMatters: [
+      'Incorrect order can authenticate before normalization, retry after a non-repeatable body is consumed, or emit metrics before the final status exists',
+      'Buffering large or unbounded bodies in the gateway can exhaust direct memory and event-loop capacity',
+    ],
+    remember: [
+      'Pre logic follows ascending order and post logic unwinds in reverse',
+      'Set strict request-size limits before body-caching filters',
+      'Keep blocking authentication and logging clients off gateway event loops',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'gateway-route-predicate-specificity',
+    title: 'Route Predicate Specificity and Shadowing',
+    group: 'Gateway Execution',
+    definition: 'When multiple gateway routes match a request, route order and predicate specificity decide which downstream receives it, so a broad route can silently shadow a narrower security or versioning rule.',
+    whyItMatters: [
+      'A catch-all path introduced during migration can bypass a route-specific filter without changing application code',
+      'Configuration validation rarely proves semantic non-overlap between method, host, header, and path predicates',
+    ],
+    remember: [
+      'Test the resolved route ID for representative and adversarial requests',
+      'Review route diffs like code because routing changes alter security boundaries',
+      'Export bounded per-route metrics rather than raw path labels',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'forwarded-header-trust-boundary',
+    title: 'Forwarded Headers Are a Trust Boundary',
+    group: 'Gateway Security',
+    definition: 'Headers such as Forwarded and X-Forwarded-For are trustworthy only when untrusted inbound values are removed and rebuilt by a known proxy chain.',
+    whyItMatters: [
+      'Trusting client-supplied forwarding headers can bypass IP allowlists, poison audit logs, or generate attacker-controlled redirect hosts',
+      'Multiple proxies require an explicit trusted-hop policy rather than blindly taking the first or last value',
+    ],
+    remember: [
+      'Strip spoofable forwarding and identity headers at the external edge',
+      'Configure trusted proxy ranges and the exact hop-count convention',
+      'Services should not be directly reachable through a path that bypasses header sanitization',
+    ],
+    readMinutes: 2,
+  },
+]
+
+const sbResilienceConcepts: ConceptCard[] = [
+  {
+    id: 'resilience4j-decoration-order',
+    title: 'Policy Order Changes Semantics',
+    group: 'Policy Composition',
+    definition: 'The nesting order of Retry, CircuitBreaker, RateLimiter, Bulkhead, and TimeLimiter decides which attempts are counted, timed, admitted, and exposed to the caller.',
+    whyItMatters: [
+      'A circuit breaker outside retry records one final call outcome, while a breaker inside retry can record each failed attempt and open much sooner',
+      'A rate limiter inside retry charges every attempt; outside it may admit one request that creates several downstream calls',
+    ],
+    remember: [
+      'Draw the decorator stack and walk one failure through it before choosing annotations',
+      'Spring annotation aspect order is configuration, not a universal intuitive default',
+      'Test attempt counts and emitted metrics, not only the final return value',
+    ],
+    readMinutes: 3,
+  },
+  {
+    id: 'circuitbreaker-window-minimum-calls',
+    title: 'Sliding Windows and Minimum Calls',
+    group: 'Circuit Breaker Decisions',
+    definition: 'A Resilience4j CircuitBreaker evaluates failure and slow-call rates over a count- or time-based sliding window only after minimumNumberOfCalls has supplied enough evidence.',
+    whyItMatters: [
+      'A low minimum opens on tiny noisy samples, while a high minimum leaves low-traffic endpoints effectively unprotected',
+      'Time-based windows reflect recent wall time; count-based windows reflect recent call volume and behave differently during bursts',
+    ],
+    remember: [
+      'Choose the window from traffic shape and acceptable detection delay',
+      'Configure slowCallDurationThreshold from a dependency latency objective, not the caller timeout',
+      'Observe not-permitted, slow, failed, and buffered-call counts together',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'circuitbreaker-slow-call-policy',
+    title: 'Slow Calls Can Open a Healthy-Looking Circuit',
+    group: 'Circuit Breaker Decisions',
+    definition: 'Resilience4j can open on slow-call rate even when calls eventually succeed, protecting caller capacity before timeout and error rates rise.',
+    whyItMatters: [
+      'A dependency that returns success after tying up every worker is operationally failing despite a 0% exception rate',
+      'A threshold below normal cold-start latency causes rollout flapping and false opens',
+    ],
+    remember: [
+      "Align slow duration with the caller's latency budget and normal distribution",
+      'Separate warm-up or batch endpoints when their latency profile differs materially',
+      'Alert on state transitions and slow-call rate, not only open-state duration',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'timelimiter-cancellation-gap',
+    title: 'TimeLimiter Does Not Guarantee Work Stopped',
+    group: 'Timeouts and Isolation',
+    definition: 'TimeLimiter bounds how long the caller waits for asynchronous work and can request Future cancellation, but the underlying I/O or blocking library may ignore interruption and continue consuming resources.',
+    whyItMatters: [
+      'Timed-out work can accumulate behind the scenes and overload a dependency even though callers fail fast',
+      'Client-level socket, query, and connection-acquisition timeouts are still required',
+    ],
+    remember: [
+      'Propagate one deadline through every layer rather than stacking unrelated timeouts',
+      'Cancellation support must be verified for the actual client library',
+      'Track in-flight work after caller timeout to detect zombie operations',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'resilience4j-bulkhead-models',
+    title: 'Semaphore vs Thread-Pool Bulkhead',
+    group: 'Timeouts and Isolation',
+    definition: "A semaphore bulkhead limits concurrent calls on the caller's thread, while a thread-pool bulkhead adds a separate executor and bounded queue to isolate execution resources.",
+    whyItMatters: [
+      'A thread-pool bulkhead can contain blocking work but adds queueing, context propagation, and another timeout boundary',
+      'Semaphore bulkheads fit non-blocking pipelines only when permits are held for the true asynchronous lifetime rather than released when a Publisher is assembled',
+    ],
+    remember: [
+      'Queue capacity is part of the latency budget, not free throughput',
+      'Size per dependency from concurrency and downstream capacity',
+      'Observe rejected calls, queue wait, active permits, and execution duration',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'resilience4j-fallback-contracts',
+    title: 'Fallbacks Are Explicit Degraded Contracts',
+    group: 'Recovery Semantics',
+    definition: 'A Resilience4j fallback must match the protected method signature with an optional exception parameter and should return a deliberately valid degraded result rather than masking every failure.',
+    whyItMatters: [
+      'A fallback for authentication, payment, or a write can turn an outage into a correctness or security incident',
+      'Catching broad Throwable can hide programming defects and prevent the breaker from recording the intended failure',
+    ],
+    remember: [
+      'Fallback only exceptions whose degraded behavior is understood',
+      'Expose degraded responses and fallback reason in telemetry',
+      'Keep fallback dependencies simpler and more reliable than the primary path',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'resilience4j-observability-cardinality',
+    title: 'Observe Policy Decisions Without Cardinality Explosion',
+    group: 'Operational Tuning',
+    definition: 'Resilience4j metrics and events should reveal attempts, rejections, slow calls, state transitions, and fallback use by stable policy name without labeling every target instance, exception message, or request.',
+    whyItMatters: [
+      'Final error rate can improve while retry attempts and downstream load explode',
+      'Per-instance dynamic breaker names create unbounded metrics and too little traffic per breaker to make sound decisions',
+    ],
+    remember: [
+      'Name policies by stable dependency and operation class',
+      'Correlate caller outcomes with downstream attempt volume',
+      'Record configuration changes alongside state-transition timelines',
+    ],
+    readMinutes: 2,
+  },
+]
+
+const sbAsyncSchedulingConcepts: ConceptCard[] = [
+  {
+    id: 'sb-async-proxy-boundary',
+    title: '@Async Is Proxy-Based',
+    group: 'Async Invocation',
+    definition: '@Async submits a method invocation only when an external caller crosses the Spring proxy, so self-invocation and unmanaged objects execute synchronously.',
+    remember: [
+      'Move the async method to another bean or call through a deliberately injected proxy',
+      'Private methods cannot be intercepted',
+      'The caller returns after submission, not after business completion',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-async-executor-boundaries',
+    title: 'Named, Bounded Executors',
+    group: 'Async Invocation',
+    definition: 'Production @Async workloads should target explicitly named executors with bounded queues, rejection policy, thread naming, and metrics rather than share an accidental default pool.',
+    whyItMatters: [
+      'Separate executors isolate slow workload classes',
+      'An unbounded queue converts overload into latency and heap growth',
+    ],
+    remember: [
+      'Select with @Async("executorName")',
+      'Size blocking pools against downstream capacity, not merely CPU count',
+      'Treat rejection as an expected overload outcome',
+    ],
+    readMinutes: 2,
+    related: ['sb-async-proxy-boundary'],
+  },
+  {
+    id: 'sb-async-result-and-exception-semantics',
+    title: 'Async Results and Exception Ownership',
+    group: 'Failure & Context',
+    definition: 'Exceptions from Future or CompletableFuture-returning @Async methods belong to the returned stage, while exceptions from void methods require an AsyncUncaughtExceptionHandler and cannot be observed by the caller.',
+    remember: [
+      'Prefer CompletableFuture when callers need completion or failure',
+      'A try/catch around the calling method cannot catch a later worker-thread failure',
+      'Log correlation and metrics must be installed on the async path',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-async-context-propagation',
+    title: 'Thread Context Does Not Follow Automatically',
+    group: 'Failure & Context',
+    definition: 'MDC, SecurityContext, locale, and transaction-bound ThreadLocals generally disappear or become unsafe when execution moves to an @Async worker unless captured and restored explicitly.',
+    whyItMatters: [
+      'Missing context produces unauthenticated work and uncorrelated logs',
+      "Blindly copying context can leak one request's data into the next pooled task",
+    ],
+    remember: [
+      'Use a TaskDecorator or framework-specific delegating executor',
+      'Always restore or clear context in finally',
+      'A database transaction never becomes cross-thread merely because context was copied',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-scheduled-single-node-semantics',
+    title: '@Scheduled Has Per-Instance Semantics',
+    group: 'Scheduling Correctness',
+    definition: 'Every application instance registers its own @Scheduled trigger, so a five-pod deployment normally executes the job five times unless coordination is added.',
+    whyItMatters: [
+      'Horizontal scaling silently changes job multiplicity',
+      'A database lease, distributed lock, or external scheduler is needed for singleton execution',
+    ],
+    remember: [
+      'Make jobs idempotent even with a lock because lease expiry and crashes create duplicates',
+      'For durable jobs with history and retries, prefer a real scheduler or queue',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-scheduled-overlap-and-shutdown',
+    title: 'Overlap, Misfires, and Shutdown',
+    group: 'Scheduling Correctness',
+    definition: 'Scheduling policy, scheduler pool size, and shutdown settings determine whether slow runs serialize, overlap, queue late work, or get interrupted during application termination.',
+    remember: [
+      'fixedDelay measures from completion; fixedRate targets a cadence from start times',
+      'A larger scheduler pool permits overlap unless the job coordinates itself',
+      'Set bounded shutdown await time and make interruption/checkpoint behavior explicit',
+    ],
+    readMinutes: 2,
+    related: ['sb-scheduled-single-node-semantics'],
+  },
+]
+
+const sbMessagingConcepts: ConceptCard[] = [
+  {
+    id: 'sb-message-at-least-once-reality',
+    title: 'At-Least-Once Is the Normal Case',
+    group: 'Delivery & Acknowledgment',
+    definition: 'A consumer that performs a side effect and acknowledges separately has a crash window that can redeliver an already-applied message, so duplicate handling is part of correctness.',
+    remember: [
+      'Acknowledge before the effect risks loss; acknowledge after the effect risks duplication',
+      'Store an idempotency key or make the state transition naturally idempotent',
+      'Exactly-once broker claims do not automatically cover an external database or API',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-consumer-transaction-boundary',
+    title: 'Consumer Transaction Boundary',
+    group: 'Delivery & Acknowledgment',
+    definition: 'Listener acknowledgment or Kafka offset commit must align with the business transaction so failures never mark work complete before its durable effects commit.',
+    remember: [
+      'Rollback should leave the message eligible for retry',
+      'Database plus broker atomicity needs an outbox/inbox design or carefully scoped transaction support',
+      'Long transactions increase rebalance, lock, and redelivery risk',
+    ],
+    readMinutes: 2,
+    related: ['sb-message-at-least-once-reality'],
+  },
+  {
+    id: 'sb-transactional-outbox',
+    title: 'Transactional Outbox',
+    group: 'Consistency Patterns',
+    definition: 'The outbox pattern writes business state and an event row in one local database transaction, then a relay publishes the event and marks it delivered separately.',
+    whyItMatters: [
+      'Eliminates the database-commit versus broker-publish dual-write gap without XA',
+      'Relay publication can duplicate, so consumers still need idempotency',
+    ],
+    remember: [
+      'CDC or polling can implement the relay',
+      'Preserve aggregate ordering with an aggregate key and sequence',
+      'Monitor unpublished row age, not only row count',
+    ],
+    readMinutes: 3,
+  },
+  {
+    id: 'sb-kafka-partition-concurrency',
+    title: 'Kafka Partition Concurrency',
+    group: 'Kafka Scaling',
+    definition: 'Within a consumer group, one partition is assigned to at most one consumer at a time, making partition count the ceiling on useful parallelism and the unit of ordering.',
+    remember: [
+      'More listener concurrency than partitions creates idle consumers',
+      'Ordering is per partition, not per topic',
+      'Choose keys to preserve required order without creating hot partitions',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-rabbit-prefetch-flow-control',
+    title: 'RabbitMQ Prefetch Is Consumer Flow Control',
+    group: 'RabbitMQ Scaling',
+    definition: 'Prefetch limits unacknowledged deliveries per consumer, balancing throughput against memory, fairness, and the amount of work redelivered when a consumer dies.',
+    remember: [
+      'Huge prefetch lets one consumer hoard work',
+      'Tiny prefetch underuses parallel workers when processing latency is significant',
+      'Listener concurrency multiplied by prefetch determines in-flight exposure',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-poison-message-policy',
+    title: 'Poison Messages Need a Terminal Policy',
+    group: 'Failure Handling',
+    definition: 'Retries must distinguish transient failures from permanent payload or business failures and route exhausted messages to a dead-letter destination with diagnostic context.',
+    whyItMatters: [
+      'Infinite immediate retry blocks partitions or burns broker and application capacity',
+      'A DLQ without replay ownership and alerting is only delayed data loss',
+    ],
+    remember: [
+      'Use bounded attempts and backoff with jitter',
+      'Retain original topic/queue, key, exception class, and attempt count',
+      'Make replay idempotent and access-controlled',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-message-schema-evolution',
+    title: 'Schema Evolution Across Deployments',
+    group: 'Contracts & Operations',
+    definition: 'Message schemas outlive a single deployment, so producers and consumers must tolerate rolling-version overlap through additive changes, defaults, and explicit versioning policy.',
+    remember: [
+      'Never assume all consumers deploy with the producer',
+      'Removing or changing meaning is harder than adding an optional field',
+      'Contract tests complement but do not replace a schema registry',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-listener-graceful-drain',
+    title: 'Listener Shutdown Must Drain in Order',
+    group: 'Contracts & Operations',
+    definition: 'A graceful message-consumer shutdown stops new delivery or polling first, then gives in-flight handlers bounded time to finish and acknowledge before executor and connection teardown.',
+    remember: [
+      'Mark the instance unready before draining so orchestration stops assigning new work',
+      'Never close the database or broker connection before handlers using them finish',
+      'If the deadline expires, interruption and redelivery must remain safe through idempotency',
+    ],
+    readMinutes: 2,
+  },
+]
+
+const sbProductionConcepts: ConceptCard[] = [
+  {
+    id: 'sb-prod-externalized-config-secrets',
+    title: 'Externalized Configuration and Secrets',
+    group: 'Configuration & Packaging',
+    definition: 'A production artifact should be environment-neutral, with validated configuration supplied through ordered external property sources and secrets kept out of images, source control, logs, and broad Actuator exposure.',
+    remember: [
+      'Fail startup on missing or invalid required settings with typed @ConfigurationProperties validation',
+      'Know property-source precedence before debugging overrides',
+      'Secret rotation needs a defined reload or restart strategy',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-prod-layered-immutable-image',
+    title: 'Layered, Immutable Container Images',
+    group: 'Configuration & Packaging',
+    definition: 'Spring Boot layered jars separate stable dependencies from frequently changing application classes, improving image-cache reuse while preserving one immutable artifact across environments.',
+    remember: [
+      'Run as non-root with a minimal trusted runtime image',
+      'Do not bake environment configuration into the image',
+      'Pin and scan base images; reproducibility matters more than a tiny image alone',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-prod-container-memory-budget',
+    title: 'Container Memory Is More Than Heap',
+    group: 'JVM & Capacity',
+    definition: 'A pod memory limit must cover heap plus metaspace, code cache, thread stacks, direct buffers, native libraries, and JVM overhead, so setting Xmx equal to the limit invites OOMKill.',
+    whyItMatters: [
+      'The kernel can kill the container without a Java heap OutOfMemoryError or heap dump',
+      'High thread counts and direct I/O buffers can dominate the missing headroom',
+    ],
+    remember: [
+      'Budget headroom and observe RSS alongside heap',
+      'Use percentage-based sizing deliberately',
+      'Distinguish JVM OOM from cgroup OOMKill',
+    ],
+    readMinutes: 3,
+  },
+  {
+    id: 'sb-prod-capacity-pool-alignment',
+    title: 'Align Request, Thread, and Connection Pools',
+    group: 'JVM & Capacity',
+    definition: 'Tomcat threads, async workers, database connections, HTTP client pools, and downstream limits form a queueing network whose smallest constrained resource determines useful concurrency.',
+    remember: [
+      'More request threads than downstream capacity often increase waiting and tail latency, not throughput',
+      'Bound every queue and measure acquisition time separately from operation time',
+      'Capacity planning is per replica and across the whole deployment',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-prod-rolling-compatibility',
+    title: 'Rolling Deployment Compatibility',
+    group: 'Deployment Safety',
+    definition: 'During a rolling deployment, old and new application versions run simultaneously against shared databases and protocols, so schema and contract changes must be backward and forward compatible across that overlap.',
+    remember: [
+      'Use expand-migrate-contract for database changes',
+      'Do not remove a column in the same release that stops reading it',
+      'Feature flags and canaries reduce blast radius but need rollback-safe data changes',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-prod-startup-probe',
+    title: 'Startup Is Not Liveness',
+    group: 'Deployment Safety',
+    definition: 'A startup probe protects slow-starting applications from premature liveness restarts, while readiness controls traffic and liveness is reserved for an unrecoverably stuck process.',
+    remember: [
+      'Do not hide indefinite startup behind an enormous probe window',
+      'Startup time includes migrations, class loading, and cold dependency initialization',
+      'Keep migrations independently observable and preferably decoupled from every replica startup',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sb-prod-observability-correlation',
+    title: 'Correlate Metrics, Traces, and Structured Logs',
+    group: 'Operational Diagnosis',
+    definition: 'Production diagnosis needs low-cardinality service metrics, sampled distributed traces, and structured logs joined by trace and request identifiers rather than any one signal in isolation.',
+    remember: [
+      'Metrics reveal scope, traces reveal the critical path, logs explain discrete events',
+      'Never put unbounded IDs into metric tags',
+      'Propagate context across async and messaging boundaries',
+    ],
+    readMinutes: 2,
+  },
+]
+
 export const springBootConcepts: ConceptSection[] = [
   {
     id: 'sb-concept-transactions',
@@ -2871,5 +3708,61 @@ export const springBootConcepts: ConceptSection[] = [
     title: 'Spring Boot Actuator & Observability',
     intro: 'Actuator turns a Spring Boot app into something an ops team can operate: health, metrics, and diagnostics endpoints wired up mostly by convention. The senior-level territory is what you must lock down before shipping it, and how it plugs into Micrometer and Kubernetes.',
     concepts: sbActuatorConcepts,
+  },
+  {
+    id: 'sb-concept-aop',
+    subtopic: 'sb-aop',
+    title: 'Aspect-Oriented Programming',
+    intro: 'Spring AOP applies cross-cutting behavior through bean proxies; senior-level use means understanding the proxy boundary, selecting narrow pointcuts, and preserving application semantics when advice fails or composes.',
+    concepts: sbAopConcepts,
+  },
+  {
+    id: 'sb-concept-properties-profiles',
+    subtopic: 'sb-properties-profiles',
+    title: 'Configuration Properties & Profiles',
+    intro: 'Spring Boot configuration combines ordered property sources, type-safe binding, Config Data imports, and profile activation; reliable systems make precedence, validation, and environment promotion explicit.',
+    concepts: sbPropertiesProfilesConcepts,
+  },
+  {
+    id: 'sb-concept-webflux',
+    subtopic: 'sb-webflux',
+    title: 'Reactive Programming with WebFlux',
+    intro: 'WebFlux is valuable when concurrency is dominated by non-blocking I/O, but its event-loop execution model, cancellation, context, and backpressure boundaries must remain intact end to end.',
+    concepts: sbWebfluxConcepts,
+  },
+  {
+    id: 'sb-concept-spring-cloud',
+    subtopic: 'sb-spring-cloud',
+    title: 'Spring Cloud: Config, Discovery, and Gateway',
+    intro: 'Spring Cloud centralizes dynamic infrastructure concerns, but production safety depends on explicit startup, refresh, staleness, routing, and trust-boundary behavior.',
+    concepts: sbSpringCloudConcepts,
+  },
+  {
+    id: 'sb-concept-resilience',
+    subtopic: 'sb-resilience',
+    title: 'Resilience4j and Policy Composition',
+    intro: 'Resilience4j policies are small stateful operators; production correctness comes from composing them in the intended order, budgeting total work, and observing policy decisions rather than merely counting final errors.',
+    concepts: sbResilienceConcepts,
+  },
+  {
+    id: 'sb-concept-async-scheduling',
+    subtopic: 'sb-async-scheduling',
+    title: 'Async & Scheduling in Spring',
+    intro: 'Spring makes background execution easy to enable; production correctness depends on proxy boundaries, bounded executors, explicit failure handling, and lifecycle-aware scheduling.',
+    concepts: sbAsyncSchedulingConcepts,
+  },
+  {
+    id: 'sb-concept-messaging',
+    subtopic: 'sb-messaging',
+    title: 'Messaging Integration',
+    intro: 'Kafka and RabbitMQ differ in storage and delivery models, but reliable Spring consumers share the same disciplines: bounded concurrency, idempotent effects, explicit retry policy, and observable lag.',
+    concepts: sbMessagingConcepts,
+  },
+  {
+    id: 'sb-concept-production',
+    subtopic: 'sb-production',
+    title: 'Production Spring Boot',
+    intro: 'Operating Spring Boot well means treating configuration, containers, JVM memory, downstream pools, deployment compatibility, and telemetry as one capacity system.',
+    concepts: sbProductionConcepts,
   },
 ]

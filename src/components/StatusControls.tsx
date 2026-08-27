@@ -26,7 +26,7 @@ export function StatusControls({ status, onToggle, size = 'md' }: Props) {
             aria-pressed={active}
             aria-label={label}
             title={label}
-            className={`flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-[11px] transition-colors ${
+            className={`flex min-h-10 items-center gap-1 rounded-md border px-2.5 py-1 font-mono text-[11px] transition-colors ${
               active
                 ? 'border-accent bg-accent-soft text-accent'
                 : 'border-border text-ink-muted hover:text-ink'

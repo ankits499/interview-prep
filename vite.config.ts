@@ -13,6 +13,12 @@ export default defineConfig(({ command }) => ({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
+      // The interview corpus is compiled into the app bundle so the full guide
+      // remains available offline. Keep Workbox's precache ceiling above that
+      // generated content asset (the default 2 MiB is too small for the corpus).
+      workbox: {
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+      },
       manifest: {
         name: 'Interview Prep',
         short_name: 'InterviewPrep',

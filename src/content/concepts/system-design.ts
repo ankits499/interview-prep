@@ -4120,6 +4120,554 @@ const sdServiceCommunicationConcepts: ConceptCard[] = [
   },
 ]
 
+const sdReplicationOperationsConcepts: ConceptCard[] = [
+  {
+    id: 'replication-fencing-tokens',
+    title: 'Fencing Tokens Stop Stale Leaders',
+    group: 'Failover Safety',
+    definition: "A fencing token is a monotonically increasing epoch attached to each leader's writes, allowing storage or downstream resources to reject commands from an older leader after failover.",
+    whyItMatters: [
+      'A lease or heartbeat can tell a node to stop, but a paused process may resume after its lease expired and still write unless the resource independently rejects its stale epoch.',
+    ],
+    remember: [
+      'Generate the token through a linearizable authority',
+      'Every protected write path must compare and persist the epoch or fencing is incomplete',
+      'Time-based leases alone depend on clock and pause assumptions; fencing converts leadership into a verifiable data-plane rule',
+    ],
+    readMinutes: 2,
+    related: ['leader-failover'],
+  },
+  {
+    id: 'replication-lag-budget',
+    title: 'Replication Lag Needs a Product Budget',
+    group: 'Lag Control',
+    definition: 'A lag budget defines how stale follower reads may be in time or log position and routes, waits, degrades, or rejects reads when a replica falls outside that bound.',
+    whyItMatters: [
+      'Sending traffic to every healthy process is unsafe when a replica is alive but minutes behind and the product requires fresher state.',
+    ],
+    remember: [
+      'Measure both time lag and bytes or log positions behind because low write periods distort time-only signals',
+      'Route read-your-writes using a commit position or session token when possible rather than an arbitrary sleep',
+      'Exclude or shed reads from lagging replicas before catch-up load makes the incident worse',
+    ],
+    readMinutes: 2,
+    related: ['replication-lag-consequences'],
+  },
+  {
+    id: 'hot-shard-splitting-salting',
+    title: 'Hot Shards Need More Than Even Storage',
+    group: 'Hotspot Mitigation',
+    definition: 'A shard can hold an average amount of data yet overload on one tenant, key, or monotonic write range, requiring key salting, sub-sharding, range splitting, caching, or tenant isolation rather than merely adding generic nodes.',
+    whyItMatters: [
+      'Rebalancing cold keys off the shard may change disk utilization while leaving the single hot key and its request queue untouched.',
+    ],
+    remember: [
+      'Salting spreads writes but makes reads fan out and aggregation more expensive',
+      'A dominant tenant often deserves a dedicated placement boundary',
+      'Detect skew from per-key or per-range load, not cluster averages',
+    ],
+    readMinutes: 2,
+    related: ['shard-key-hotspot-risk', 'resharding-rebalancing'],
+  },
+  {
+    id: 'online-rebalance-state-machine',
+    title: 'Online Rebalancing Is a State Machine',
+    group: 'Rebalancing',
+    definition: 'Safe live shard movement progresses through explicit ownership states for snapshot copy, change catch-up, validated cutover, and old-owner retirement so every write has one authoritative destination throughout migration.',
+    whyItMatters: [
+      'An uncoordinated backfill plus routing flip can lose writes that land on the old owner after its copied range has already passed.',
+    ],
+    remember: [
+      'Throttle migration to preserve foreground latency',
+      'Use epochs or routing versions so stale clients cannot keep writing the old owner',
+      'Validate counts, checksums, and lag before cutover; retain a rollback window without permitting two writable owners',
+    ],
+    readMinutes: 2,
+    related: ['resharding-rebalancing', 'replication-fencing-tokens'],
+  },
+  {
+    id: 'replica-repair-resource-contention',
+    title: 'Replica Repair Competes with Production Traffic',
+    group: 'Lag Control',
+    definition: 'Snapshot restore, log catch-up, anti-entropy repair, and index rebuild consume the same disk, network, and CPU resources as foreground requests, so recovery speed and service health must be controlled together.',
+    whyItMatters: [
+      'A recovered replica can trigger a retry-and-repair storm that increases leader latency, creates more lag, and causes additional replicas to fail.',
+    ],
+    remember: [
+      'Rate-limit repair and admission-control read traffic',
+      'Bootstrap from a recent snapshot before replaying an unbounded log when supported',
+      'Monitor headroom and estimated catch-up time, not only replica up/down state',
+    ],
+    readMinutes: 2,
+    related: ['replication-lag-budget'],
+  },
+]
+
+const sdTransactionRecoveryConcepts: ConceptCard[] = [
+  {
+    id: 'durable-saga-state-machine',
+    title: 'A Saga Is a Durable State Machine',
+    group: 'Saga Recovery',
+    definition: 'A production saga persists its current step, outcomes, deadlines, retry policy, and compensation progress so another worker can resume deterministically after a crash.',
+    whyItMatters: [
+      'An in-memory orchestrator can lose the only record of whether a payment was requested, succeeded, or needs compensation.',
+    ],
+    remember: [
+      'Persist the transition before or atomically with emitting the next command',
+      'Give every saga and step a stable idempotency key',
+      'Model terminal manual-review states instead of retrying forever',
+    ],
+    readMinutes: 2,
+    related: ['saga-pattern-overview', 'saga-choreography-vs-orchestration'],
+  },
+  {
+    id: 'compensation-can-fail',
+    title: 'Compensation Is Another Distributed Workflow',
+    group: 'Saga Recovery',
+    definition: 'A compensating action can time out, fail permanently, or encounter changed business state, so it needs idempotent retries, durable progress, escalation, and reconciliation just like the forward path.',
+    whyItMatters: [
+      "Declaring 'refund on failure' does not specify what happens when the refund provider is unavailable for hours or the original charge outcome is unknown.",
+    ],
+    remember: [
+      'Classify retryable, terminal, and ambiguous outcomes',
+      'Use provider lookup or reconciliation before repeating an operation with an unknown result',
+      'Alert on saga age and stuck states, not only thrown errors',
+    ],
+    readMinutes: 2,
+    related: ['compensating-transactions', 'durable-saga-state-machine'],
+  },
+  {
+    id: 'inbox-dedup-atomic-consumption',
+    title: 'Inbox Deduplication Must Be Atomic',
+    group: 'At-Least-Once Correctness',
+    definition: "An inbox pattern records an event's unique ID in the same local transaction as its business effect, making redelivery a no-op without a check-then-act race.",
+    whyItMatters: [
+      'Checking a cache or dedup table before the business write is insufficient if the process crashes between applying the effect and recording completion.',
+    ],
+    remember: [
+      'Enforce uniqueness in the database',
+      'Scope event IDs by producer or message contract when uniqueness is not global',
+      'Retention must exceed the maximum plausible redelivery window or old duplicates become new again',
+    ],
+    readMinutes: 2,
+    related: ['transactional-outbox-pattern'],
+  },
+  {
+    id: 'outbox-ordering-and-partitioning',
+    title: 'Outbox Preserves Existence, Not Global Order',
+    group: 'At-Least-Once Correctness',
+    definition: 'An outbox makes an event durably publishable with its local transaction, but ordering depends on relay concurrency, broker partitioning, aggregate keys, and consumer handling.',
+    whyItMatters: [
+      'Two events committed in order can be published or processed out of order when separate relay workers or partitions are involved.',
+    ],
+    remember: [
+      'Partition by aggregate ID for per-aggregate order',
+      'Include aggregate sequence numbers so consumers detect gaps or stale events',
+      'Global order is expensive and rarely the actual business requirement',
+      'Archive or delete published rows without racing the relay and monitor oldest-unpublished age',
+    ],
+    readMinutes: 2,
+    related: ['outbox-relay-mechanics'],
+  },
+  {
+    id: 'consensus-not-business-atomicity',
+    title: 'Consensus Does Not Create a Business Transaction',
+    group: 'Consensus Boundaries',
+    definition: 'Consensus can order commands and replicate one state machine despite failures, but it does not atomically coordinate independent services, external side effects, or invariants outside that state machine.',
+    whyItMatters: [
+      'Putting an orchestrator log on Raft prevents loss of its state but does not make a card charge and an inventory reservation commit together.',
+    ],
+    remember: [
+      'Consensus requires quorum connectivity to make progress and therefore sacrifices availability in a minority partition',
+      'Replicate the smallest coordination state that needs linearizability',
+      'External effects still require idempotency, fencing, outbox, or compensation',
+    ],
+    readMinutes: 2,
+    related: ['consensus-quorum-agreement', 'raft-leader-election-log-replication'],
+  },
+]
+
+const sdFundamentalsSupplementConcepts: ConceptCard[] = [
+  {
+    id: 'utilization-queueing-knee',
+    title: 'The Utilization Knee',
+    group: 'Queueing and Tail Latency',
+    definition: "As arrival rate approaches a resource's service capacity, small bursts or service-time variance create disproportionately large queues and tail latency even before average throughput stops increasing.",
+    whyItMatters: [
+      'A system at 95% average utilization has almost no room for uneven arrivals, slow requests, GC pauses, or one failed replica',
+      'Scaling on CPU alone reacts late when queue depth and time-in-queue are already growing',
+    ],
+    remember: [
+      'Capacity is a latency target at a workload shape, not the maximum QPS reached before crashing',
+      'Watch saturation and queue age alongside utilization',
+      'Keep explicit steady-state and failover headroom',
+    ],
+    readMinutes: 2,
+    related: ['throughput-vs-latency'],
+  },
+  {
+    id: 'queue-time-vs-service-time',
+    title: 'Queue Time vs Service Time',
+    group: 'Queueing and Tail Latency',
+    definition: 'End-to-end latency is time waiting for capacity plus time actually receiving service, and overload commonly increases the waiting component while handler execution appears unchanged.',
+    whyItMatters: [
+      'A trace that starts only when a worker begins can show every handler as fast while users wait seconds in an uninstrumented executor or connection-pool queue',
+      'Adding a deeper queue can reduce rejections but silently spend the entire request deadline before work starts',
+    ],
+    remember: [
+      'Timestamp admission, enqueue, dequeue, and completion separately',
+      'Track queue age as well as depth because depth has different meaning at different throughput',
+      'Reject work that cannot finish inside its remaining deadline',
+    ],
+    readMinutes: 2,
+    related: ['utilization-queueing-knee'],
+  },
+  {
+    id: 'adaptive-concurrency-admission',
+    title: 'Concurrency Admission Control',
+    group: 'Overload Control',
+    definition: 'Concurrency limits bound work currently consuming scarce resources, often protecting variable-cost services more directly than a requests-per-second limit.',
+    whyItMatters: [
+      'One hundred long requests can overload a service that handles one thousand short requests per second safely',
+      "An adaptive limiter can reduce admitted concurrency when latency rises, preserving throughput near the system's efficient operating point",
+    ],
+    remember: [
+      'Bound queues behind the concurrency limit or rejected work merely moves elsewhere',
+      'Partition capacity by priority or tenant so one workload cannot consume every permit',
+      'Return an explicit overload response with retry guidance when safe',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'deadline-propagation-budget',
+    title: 'End-to-End Deadline Propagation',
+    group: 'Overload Control',
+    definition: 'A request deadline is an absolute remaining-time budget propagated across hops so downstream work can stop or reject when it can no longer contribute a useful response.',
+    whyItMatters: [
+      "Independent per-hop timeouts can sum beyond the caller's deadline and leave orphaned work running after the response is abandoned",
+      'Retries must consume the same budget rather than receiving a fresh timeout per attempt',
+    ],
+    remember: [
+      'Reserve time for network return and fallback rather than giving every downstream the full deadline',
+      'Do not start queued work whose estimated completion exceeds remaining time',
+      'Cancellation support varies; capacity limits are still needed when work cannot be stopped',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'tail-latency-fanout-amplification',
+    title: 'Fan-Out Amplifies Tail Latency',
+    group: 'Distributed Request Paths',
+    definition: 'A fan-out request that waits for every subrequest completes at the maximum child latency, making the chance of encountering at least one tail event grow with fan-out width.',
+    whyItMatters: [
+      'Even individually healthy shards can produce poor aggregate p99 when a request touches dozens of them',
+      'Blind hedging reduces latency at the cost of extra load and can worsen an already overloaded backend',
+    ],
+    remember: [
+      'Reduce fan-out, use partial results, or choose quorum completion where semantics allow',
+      'Hedge only after a delay, within a retry budget, and preferably to an independent replica',
+      'Measure per-child and aggregate latency distributions',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'capacity-headroom-under-failure',
+    title: 'Capacity Planning for Failure State',
+    group: 'Distributed Request Paths',
+    definition: 'A redundant fleet is only failover-capable if surviving instances can absorb redistributed peak load while still meeting latency objectives.',
+    whyItMatters: [
+      'A three-zone service running each zone near saturation loses availability when one zone fails even though traffic routing works perfectly',
+      'Autoscaling may react too slowly when cold start, image pull, connection warm-up, or quota limits dominate recovery',
+    ],
+    remember: [
+      'Model N-minus-one capacity at peak, not only normal average utilization',
+      'Include dependent quotas such as database connections and outbound ports',
+      'Validate evacuation with load, not spreadsheet arithmetic alone',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'brownout-feature-shedding',
+    title: 'Brownout and Optional-Feature Shedding',
+    group: 'Overload Control',
+    definition: 'A brownout preserves the core user journey by disabling optional expensive work under stress instead of letting all features degrade or fail together.',
+    whyItMatters: [
+      'Recommendations, personalization, thumbnails, and analytics enrichment can consume capacity needed for checkout or authentication',
+      'Predefined degradation avoids inventing unsafe fallbacks during an incident',
+    ],
+    remember: [
+      'Classify mandatory and optional work before overload occurs',
+      'Trigger from saturation and SLO signals with hysteresis to prevent flapping',
+      'Expose degraded mode so success metrics do not hide lost functionality',
+    ],
+    readMinutes: 2,
+  },
+]
+
+const sdFaultToleranceSupplementConcepts: ConceptCard[] = [
+  {
+    id: 'failure-domain-dependency-map',
+    title: 'Failure Domains Follow Dependencies',
+    group: 'Regional Failure Domains',
+    definition: 'A service is region-independent only when its critical data, identity, secrets, DNS, messaging, certificates, and operational controls do not synchronously depend on the failed region.',
+    whyItMatters: [
+      'Multi-region compute can still fail globally because both regions use one regional database, KMS key, artifact registry, or control service',
+      'Architecture diagrams often omit human and deployment dependencies needed to recover',
+    ],
+    remember: [
+      'Trace dependencies from user request through data plane and control plane',
+      "Classify each dependency's failure domain and degraded behavior",
+      'Test with the primary region unreachable, not merely application pods stopped',
+    ],
+    readMinutes: 2,
+    related: ['spof-blast-radius'],
+  },
+  {
+    id: 'regional-evacuation-capacity',
+    title: 'Regional Evacuation Capacity',
+    group: 'Regional Failure Domains',
+    definition: 'A failover region must absorb displaced peak traffic plus recovery work without exceeding compute, database, connection, quota, or network capacity.',
+    whyItMatters: [
+      'A warm standby can start correctly and still collapse while scaling, warming caches, replaying queues, and receiving a full traffic shift',
+      'Cloud quotas and downstream allowlists often become the real recovery bottleneck',
+    ],
+    remember: [
+      'Validate N-minus-one capacity with representative peak traffic',
+      'Include cache miss storms, backlog replay, and replication catch-up',
+      'Pre-approve regional quotas and third-party capacity',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'empirical-rpo-replication-lag',
+    title: 'RPO Must Include Replication Gaps',
+    group: 'Recovery Objective Validation',
+    definition: 'Observed RPO is the age of the newest consistent durable state recoverable after failure, including replication lag, buffered writes, corrupted replicas, and the point chosen for recovery.',
+    whyItMatters: [
+      'A nominal one-minute replication interval does not guarantee one-minute loss during a lag spike or silent corruption',
+      'Promoting the newest replica can preserve more writes but expose an inconsistent transaction or application state',
+    ],
+    remember: [
+      'Measure worst-case recoverable timestamp during drills',
+      'Monitor lag in business commit time, not only bytes or offsets',
+      'Define reconciliation for writes accepted but absent after recovery',
+    ],
+    readMinutes: 2,
+    related: ['rto-rpo'],
+  },
+  {
+    id: 'recovery-validation-business-invariants',
+    title: 'Recovery Is More Than a Successful Restore',
+    group: 'Recovery Objective Validation',
+    definition: 'A recovery drill is complete only when the application serves representative traffic and business invariants, credentials, dependencies, and data reconciliation are verified within the measured RTO.',
+    whyItMatters: [
+      'A database can restore successfully while indexes, search projections, encryption keys, object blobs, or message offsets are inconsistent',
+      'Manual validation steps often dominate real recovery time and are omitted from infrastructure metrics',
+    ],
+    remember: [
+      'Define automated integrity and synthetic user checks before the drill',
+      'Measure from user-impact start to verified service, not replica promotion',
+      'Record every manual decision and automate repeatable steps',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'failback-is-a-second-migration',
+    title: 'Failback Is a Second Migration',
+    group: 'Failover Lifecycle',
+    definition: 'Returning traffic and write authority to a repaired primary region requires resynchronization, fencing, compatibility checks, and another controlled cutover rather than simply reversing DNS.',
+    whyItMatters: [
+      'The former primary may contain divergent or stale writes and must not rejoin as authoritative without reconciliation',
+      'Rushing failback while the service is stable in the recovery region creates an avoidable second incident',
+    ],
+    remember: [
+      'Prefer a planned fail-forward posture until evidence supports return',
+      'Rebuild or reconcile the old primary from the current source of truth',
+      'Canary traffic and retain rollback during failback',
+    ],
+    readMinutes: 2,
+    related: ['failover-mechanics'],
+  },
+  {
+    id: 'control-plane-data-plane-separation',
+    title: 'Control-Plane Failure During Recovery',
+    group: 'Failover Lifecycle',
+    definition: 'The data plane may continue serving cached configuration while deployment, DNS changes, secret rotation, autoscaling, or failover controls are unavailable, so recovery must not assume the control plane is healthy.',
+    whyItMatters: [
+      'An outage can leave healthy workloads running but prevent operators from scaling or redirecting them',
+      'Failover automation that depends on the same regional control plane as the failed workload shares its blast radius',
+    ],
+    remember: [
+      'Keep emergency access and recovery controls outside the primary failure domain',
+      'Pre-provision critical standby resources instead of requiring creation during disaster',
+      'Test loss of management APIs separately from loss of serving instances',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'recovery-drill-progressive-scope',
+    title: 'Progressive Recovery Exercises',
+    group: 'Recovery Testing',
+    definition: 'Recovery confidence grows from component restore tests to service failovers, zone evacuations, and full regional game days with explicit hypotheses, abort conditions, and measured objectives.',
+    whyItMatters: [
+      'A tabletop finds missing decisions but cannot validate permissions, capacity, propagation delays, or data correctness',
+      'Jumping directly to a full regional experiment without smaller proofs creates unnecessary blast radius',
+    ],
+    remember: [
+      'Exercise both automated paths and human escalation',
+      'Vary failure timing, including during deploys and peak load',
+      'Turn every finding into an owned remediation and repeat the drill',
+    ],
+    readMinutes: 2,
+    related: ['chaos-engineering'],
+  },
+]
+
+const sdServiceCommunicationSupplementConcepts: ConceptCard[] = [
+  {
+    id: 'service-protocol-decision-matrix',
+    title: 'Choose Protocol by Interaction Contract',
+    group: 'Protocol Choice',
+    definition: 'REST, gRPC, messaging, and streaming optimize different contracts—broad interoperability, typed low-latency RPC, temporal decoupling, and continuous updates—so protocol choice follows interaction shape rather than organization-wide fashion.',
+    remember: [
+      'REST is operationally universal and cache-friendly',
+      'gRPC gives strict schemas and streaming but needs gateway/browser strategy',
+      'Messaging accepts eventual completion and duplicate delivery',
+      'WebSocket or server streaming adds connection lifecycle and backpressure',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'end-to-end-deadline-budget',
+    title: 'Propagate One End-to-End Deadline',
+    group: 'Deadlines & Cancellation',
+    definition: "Each hop should receive the caller's remaining absolute deadline and reserve time for its own work, rather than resetting a full timeout at every service boundary.",
+    whyItMatters: [
+      'Per-hop fresh timeouts can make a request continue long after the client has abandoned it',
+      'A downstream timeout must fit inside upstream response and cleanup time',
+    ],
+    remember: [
+      'Propagate deadline metadata, not only a duration',
+      'Fail before starting work that cannot complete usefully',
+      'Budget queueing, retries, and serialization as well as network time',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'distributed-cancellation-is-cooperative',
+    title: 'Distributed Cancellation Is Cooperative',
+    group: 'Deadlines & Cancellation',
+    definition: 'Client disconnect or deadline expiry must propagate as a cancellation signal through every active hop, yet each service still needs idempotent cleanup because cancellation races completion and may not reach external side effects.',
+    remember: [
+      'Stop fan-out children when the parent result is no longer useful',
+      'Cancellation is not rollback',
+      'Design late completion to be harmless and observable',
+    ],
+    readMinutes: 2,
+    related: ['end-to-end-deadline-budget'],
+  },
+  {
+    id: 'fanout-budget-and-concurrency',
+    title: 'Fan-Out Needs a Concurrency Budget',
+    group: 'Fan-Out & Partial Failure',
+    definition: 'An aggregator must cap downstream concurrency, assign per-branch deadlines, and prevent nested fan-out from multiplying one request into uncontrolled work.',
+    remember: [
+      'Parallel calls reduce sum latency but increase simultaneous load',
+      'Bulkhead branches with different capacity and criticality',
+      'Track fan-out width and abandoned in-flight calls',
+    ],
+    readMinutes: 2,
+    related: ['end-to-end-deadline-budget'],
+  },
+  {
+    id: 'partial-response-contract',
+    title: 'Partial Failure Is an API Contract',
+    group: 'Fan-Out & Partial Failure',
+    definition: 'An aggregator should classify fields as required, optional, stale-tolerant, or degradable so one dependency failure maps to a deliberate response rather than an accidental 500 or silently incomplete payload.',
+    remember: [
+      'Expose freshness or omission when clients need to distinguish degraded data',
+      'Cache fallback needs an age bound',
+      'Required dependency failure should fail fast enough to preserve retry budget',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'idempotency-scope-and-fencing',
+    title: 'Idempotency Needs Scope, State, and Ownership',
+    group: 'Safe Retries',
+    definition: 'A retry key is correct only when its scope, request fingerprint, retention window, in-progress state, and stored final response jointly distinguish a duplicate from a conflicting new operation.',
+    remember: [
+      'Reject one key reused with a different payload',
+      'Atomically claim the key before the side effect',
+      'A fencing token prevents a timed-out former owner from committing after a retry takes over',
+    ],
+    readMinutes: 3,
+  },
+]
+
+const sdCaseStudiesEvolutionSupplementConcepts: ConceptCard[] = [
+  {
+    id: 'case-study-invariant-led-evolution',
+    title: 'Evolve from Invariants, Not Components',
+    group: 'Interview Method',
+    definition: 'When a requirement changes, restate the invariant and SLO it affects before replacing components, so the design evolves for a reason the interviewer can test.',
+    remember: [
+      'Separate must-never-break invariants from preferred behavior',
+      'Name which old assumption became false',
+      'Change the smallest boundary that restores the invariant',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'case-study-bottleneck-migration',
+    title: 'Bottlenecks Migrate',
+    group: 'Interview Method',
+    definition: 'Every scaling intervention moves pressure to another queue, partition, dependency, or operational process, so an evolved design must name the next limit and the metric that reveals it.',
+    remember: [
+      'Caching shifts load toward invalidation and hot keys',
+      'Sharding shifts complexity toward routing and rebalancing',
+      'Async buffering shifts risk toward lag and replay',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'case-study-degradation-ladder',
+    title: 'Design a Degradation Ladder',
+    group: 'Failure Evolution',
+    definition: 'A mature case study ranks features and data by criticality so overload or partial failure triggers staged degradation rather than an all-or-nothing outage.',
+    remember: [
+      'Protect the write or money path before personalization and analytics',
+      'Define stale, omitted, queued, and rejected outcomes',
+      'Tie each degradation step to observable thresholds and recovery hysteresis',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'case-study-requirement-change-ledger',
+    title: 'Maintain a Constraint Ledger',
+    group: 'Failure Evolution',
+    definition: 'Tracking assumptions, decisions, and their consequences lets an interview design adapt coherently when constraints change without contradicting earlier guarantees.',
+    remember: [
+      'Record scale, ordering scope, consistency, retention, and tenant isolation',
+      'State which decision is reversible',
+      'Call out migration and mixed-version states, not only the final architecture',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'case-study-multi-region-escalation',
+    title: 'Multi-Region Changes the Correctness Model',
+    group: 'Constraint Escalation',
+    definition: 'Moving from single-region availability to active-active multi-region forces an explicit decision about write ownership, conflict resolution, replication lag, and which operations may sacrifice availability.',
+    remember: [
+      'Do not say active-active without a conflict policy',
+      'Keep strongly ordered invariants in one owner or use consensus',
+      'Test region evacuation, replay, and data-loss objectives separately',
+    ],
+    readMinutes: 3,
+  },
+]
+
 export const systemDesignConcepts: ConceptSection[] = [
   {
     id: 'sd-concept-fundamentals',
@@ -4260,5 +4808,47 @@ export const systemDesignConcepts: ConceptSection[] = [
     title: 'Service-to-Service Communication Patterns',
     intro: 'How services actually talk to each other inside the boundary — call topology, coordination style, and discovery mechanics — not the wire protocol or the client-facing API shape.',
     concepts: sdServiceCommunicationConcepts,
+  },
+  {
+    id: 'sd-concept-replication-operations',
+    subtopic: 'sd-replication',
+    title: 'Replication & Rebalancing Operations',
+    intro: 'Reliable replicated storage needs more than a topology diagram: operators must bound staleness, prevent stale leaders from mutating resources, and move hot data without turning repair traffic into an outage.',
+    concepts: sdReplicationOperationsConcepts,
+  },
+  {
+    id: 'sd-concept-transaction-recovery',
+    subtopic: 'sd-transactions',
+    title: 'Distributed Transaction Recovery',
+    intro: 'Sagas and outboxes replace atomic cross-service commits with durable state, retries, deduplication, and reconciliation; correctness therefore depends on explicit recovery protocols rather than a happy-path sequence diagram.',
+    concepts: sdTransactionRecoveryConcepts,
+  },
+  {
+    id: 'sd-concept-fundamentals-supplement',
+    subtopic: 'sd-fundamentals',
+    title: 'Capacity and Tail-Latency Fundamentals',
+    intro: 'Senior designs reason about the nonlinear behavior near capacity: queues, deadlines, admission, fan-out, and the headroom needed to survive failures without turning partial overload into total collapse.',
+    concepts: sdFundamentalsSupplementConcepts,
+  },
+  {
+    id: 'sd-concept-fault-tolerance-supplement',
+    subtopic: 'sd-fault-tolerance',
+    title: 'Multi-Region Recovery Validation',
+    intro: 'Disaster recovery succeeds only when failure domains, data loss, evacuation capacity, control-plane dependencies, and failback are exercised end to end under realistic conditions.',
+    concepts: sdFaultToleranceSupplementConcepts,
+  },
+  {
+    id: 'sd-concept-service-communication-supplement',
+    subtopic: 'sd-service-communication',
+    title: 'Service Communication Under Failure',
+    intro: 'Protocol choice is only the starting point; senior designs define an end-to-end time budget, cancellation behavior, retry identity, and a useful partial response before dependencies fail.',
+    concepts: sdServiceCommunicationSupplementConcepts,
+  },
+  {
+    id: 'sd-concept-case-studies-evolution-supplement',
+    subtopic: 'sd-case-studies',
+    title: 'Evolving a Design Under New Constraints',
+    intro: 'Strong interview performance is not a memorized diagram; it is the ability to preserve invariants, identify the newly dominant bottleneck, and evolve the design when the interviewer changes one constraint.',
+    concepts: sdCaseStudiesEvolutionSupplementConcepts,
   },
 ]
