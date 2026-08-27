@@ -32,8 +32,41 @@ const palettes = {
   },
 }
 
+// A long left-right chain (many nodes in one row) is fine on desktop but
+// mermaid's responsive sizing *shrinks* it to fit a narrow card rather than
+// scrolling — cramming every node into one row at illegibly small size
+// instead. Flip it to a top-down layout on narrow viewports instead, so it
+// stacks and scrolls vertically (the natural mobile interaction) rather
+// than squeezing horizontally. Only kicks in for genuinely long chains —
+// short diagrams keep their authored LR flow on every screen size.
+const LONG_CHAIN_EDGE_THRESHOLD = 5
+
+function countEdges(code: string): number {
+  return (code.match(/--[-.>]*>|---/g) || []).length
+}
+
+function forceVerticalOnNarrow(code: string): string {
+  if (countEdges(code) < LONG_CHAIN_EDGE_THRESHOLD) return code
+  return code.replace(/^(flowchart|graph)\s+(LR|RL)\b/, '$1 TD')
+}
+
+function useIsNarrowViewport(breakpointPx = 640): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < breakpointPx,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpointPx - 1}px)`)
+    const handler = () => setNarrow(mq.matches)
+    handler()
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [breakpointPx])
+  return narrow
+}
+
 export function MermaidDiagram({ code }: { code: string }) {
   const { theme } = useTheme()
+  const isNarrow = useIsNarrowViewport()
   const rawId = useId()
   const id = `mermaid-${rawId.replace(/[:]/g, '')}`
   const [svg, setSvg] = useState<string | null>(null)
@@ -59,8 +92,9 @@ export function MermaidDiagram({ code }: { code: string }) {
         state: { nodeSpacing: 20, rankSpacing: 26, padding: 8, useMaxWidth: true },
         securityLevel: 'strict',
       })
+      const diagramCode = isNarrow ? forceVerticalOnNarrow(code.trim()) : code.trim()
       mermaid
-        .render(id, code.trim())
+        .render(id, diagramCode)
         .then(({ svg: rendered }) => {
           // Mermaid's own output already carries width="100%" plus an inline
           // style="max-width: <natural-px>" (from useMaxWidth) — that pairing
@@ -81,7 +115,7 @@ export function MermaidDiagram({ code }: { code: string }) {
     return () => {
       cancelled = true
     }
-  }, [code, theme, id])
+  }, [code, theme, id, isNarrow])
 
   return (
     <div className="w-full max-w-[65ch] overflow-hidden rounded-md border border-border">
