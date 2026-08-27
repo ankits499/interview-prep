@@ -4244,6 +4244,1242 @@ String describe(Shape s) {
   },
 ]
 
+const exceptionsConcepts: ConceptCard[] = [
+  {
+    id: 'checked-vs-unchecked-tradeoff',
+    title: 'Checked vs Unchecked: The Real Design Tradeoff',
+    group: 'Design Philosophy',
+    definition: 'Checked exceptions force callers to handle or declare a failure at compile time; unchecked exceptions rely on documentation and runtime discovery, trading safety for API flexibility.',
+    whyItMatters: [
+      "Checked exceptions don't compose with functional interfaces — a Stream.map() lambda can't throw a checked exception without wrapping it, which is why the Java 8 Stream/Optional/CompletableFuture APIs standardized on unchecked exceptions",
+      'Checked exceptions leak implementation details up the call stack: a method throwing SQLException forces every caller between it and the handler to know about SQL, breaking abstraction layers',
+    ],
+    remember: [
+      "Modern API design (Stream, Optional, reactive libraries) avoids checked exceptions almost entirely — this is a deliberate, debated reaction to Java's early-2000s design",
+      'Checked exceptions still earn their keep for recoverable conditions the caller can meaningfully act on (e.g. retry, fallback) at a stable API boundary',
+    ],
+    interviewAngle: {
+      q: "Why can't you throw a checked exception from inside a Stream.map() lambda?",
+      a: "Functional interfaces like Function<T,R> don't declare checked exceptions in their signature, so the compiler rejects it — you must catch-and-wrap into a RuntimeException or use a helper that does that, which is exactly why modern libraries lean unchecked.",
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'try-with-resources-suppressed',
+    title: 'Try-With-Resources & Suppressed Exceptions',
+    group: 'Resource Management',
+    definition: 'try-with-resources auto-closes AutoCloseable resources in reverse declaration order, and if both the try body and close() throw, the close() exception is attached as a suppressed exception rather than replacing the original.',
+    whyItMatters: [
+      'Before Java 7, a close() exception in a finally block silently masked the real failure from the try body — suppressed exceptions preserve both, retrievable via getSuppressed()',
+    ],
+    remember: [
+      'The exception from the try block is the one propagated; close()-time exceptions ride along as suppressed, not thrown separately',
+      'Multiple resources close in reverse order of declaration, and each close() failure after the first becomes suppressed on the primary exception',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `try (var conn = ds.getConnection()) {
+    conn.doWork(); // throws WorkException
+} // close() also throws SQLException
+// caught exception is WorkException
+// exception.getSuppressed() contains the SQLException`,
+      },
+      note: 'Without try-with-resources, the SQLException from a manual finally-block close() would have replaced WorkException entirely, hiding the real cause.',
+    },
+    readMinutes: 2,
+    related: ['exception-chaining'],
+  },
+  {
+    id: 'exception-chaining',
+    title: 'Exception Chaining vs Losing the Stack Trace',
+    group: 'Resource Management',
+    definition: 'Wrapping a caught exception with new X("msg", cause) preserves the original stack trace via getCause(); re-throwing a freshly constructed exception without passing the cause silently discards it.',
+    whyItMatters: [
+      'The single most common production logging bug: `catch (SQLException e) { throw new ServiceException("failed"); }` loses exactly the stack trace you need to diagnose the failure — the fix is trivial (pass `e` as cause) but easy to forget under a checked-to-unchecked translation',
+    ],
+    remember: [
+      "printStackTrace() and most loggers print the full cause chain automatically once it's wired — the cost of forgetting is invisible until you actually need the trace",
+      "initCause() exists for exceptions whose constructor doesn't take a cause, but can only be called once and never after the exception has been thrown",
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'custom-hierarchy-design',
+    title: 'Custom Exception Hierarchy: Checked or Unchecked?',
+    group: 'Design Philosophy',
+    definition: "Design custom exceptions around whether the caller has a real, distinct recovery action to take — if so, a checked exception at a stable boundary communicates that contract; otherwise it's an unchecked programming-error or unrecoverable-condition signal.",
+    whyItMatters: [
+      "A common anti-pattern is one giant checked ServiceException for every failure mode in a module — callers can't discriminate the case at compile time, so they end up catching it and doing nothing useful, defeating the point of it being checked",
+    ],
+    remember: [
+      'Extend RuntimeException for things that indicate a bug or an unrecoverable state (bad input already validated earlier, invariant violation) — forcing every caller to catch these adds noise, not safety',
+      'Reserve checked exceptions for a narrow, well-named type per distinct recoverable condition at a boundary you control (e.g. InsufficientFundsException), not as a catch-all',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'finally-return-swallows',
+    title: 'Finally Block Return Swallows Exceptions',
+    group: 'Control Flow Gotchas',
+    definition: "A return (or throw) statement inside a finally block silently discards any exception in flight from the try/catch, replacing it with the finally block's own outcome.",
+    whyItMatters: [
+      'This is a genuine compiler-legal footgun, not a rare edge case — a finally block that returns a value or swallows-and-returns after catching inside itself will mask a real failure with no warning',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `static int risky() {
+    try {
+        throw new RuntimeException("boom");
+    } finally {
+        return 42; // exception is discarded, method returns 42
+    }
+}`,
+      },
+      note: 'Static analyzers (and IDE warnings) flag this, but it compiles cleanly and fails silently at runtime.',
+    },
+    remember: [
+      'Same rule applies to a bare `throw` in finally — it replaces whatever exception was already propagating',
+      'finally still runs on a normal return from try, on any thrown exception, and on a caught-and-handled exception — but NOT if the JVM itself halts, e.g. System.exit() or a JVM crash/kill -9',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'finally-system-exit',
+    title: 'finally Does Not Run on System.exit()',
+    group: 'Control Flow Gotchas',
+    definition: 'Calling System.exit() from inside a try block terminates the JVM immediately and skips any pending finally blocks — this is different from every other way a try block can end.',
+    whyItMatters: [
+      'Resource cleanup (connection close, file flush) written in finally will not happen if a shutdown path calls System.exit() mid-try — this has caused real data-loss and leaked-handle incidents in production shutdown code',
+    ],
+    remember: [
+      'Shutdown hooks (Runtime.addShutdownHook) are the mechanism designed to run cleanup during System.exit() — finally blocks are not',
+      'An uncaught Error like OutOfMemoryError can also abort before finally runs, depending on where memory allocation fails',
+    ],
+    readMinutes: 2,
+    related: ['finally-return-swallows'],
+  },
+  {
+    id: 'exception-perf-cost',
+    title: 'Performance Cost of Exceptions',
+    group: 'Performance',
+    definition: 'Throwing an exception is expensive primarily because fillInStackTrace() walks and captures the entire call stack at construction time, not because of the throw/catch mechanism itself.',
+    whyItMatters: [
+      'Using exceptions for routine control flow in a hot path (e.g. a loop relying on catching an exception instead of checking a condition) can be orders of magnitude slower than a normal branch, purely from stack trace capture',
+    ],
+    remember: [
+      'A custom exception can override fillInStackTrace() to no-op (or pass writableStackTrace=false to the protected Throwable constructor) when the stack trace is genuinely never needed, e.g. a high-frequency validation-failure signal used purely as control flow',
+      "JIT can sometimes eliminate stack trace cost entirely for exceptions that are thrown and caught locally without ever escaping (partly why microbenchmarks on this are unreliable) — don't over-optimize speculatively, measure first",
+    ],
+    interviewAngle: {
+      q: 'Why are exceptions considered slow, and how would you make a custom exception cheap?',
+      a: 'The cost is fillInStackTrace() capturing the call stack at throw time, not the try/catch mechanism. Override fillInStackTrace() to no-op, or use the protected Throwable(String, Throwable, boolean, boolean) constructor with writableStackTrace=false, when the exception is used as frequent control-flow signaling and the trace is never read.',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'exceptions-completablefuture',
+    title: 'Exceptions in CompletableFuture Chains',
+    group: 'Concurrent & Async',
+    definition: 'An exception thrown inside any stage of a CompletableFuture chain short-circuits subsequent thenApply/thenAccept stages and only surfaces at a terminal call like get(), join(), or a dedicated exceptionally/handle stage.',
+    whyItMatters: [
+      "A chain with no .exceptionally(), .handle(), or .whenComplete() and whose result is never joined/get()'d will silently swallow the failure entirely — nothing logs it, nothing crashes, the work just vanishes",
+    ],
+    remember: [
+      'get() throws it wrapped in ExecutionException; join() throws it wrapped in unchecked CompletionException — same cause, different wrapper, easy to mismatch in a catch clause',
+      'exceptionally() only sees failures, handle() sees both success and failure and can recover in either case — prefer handle() when you need one place to normalize the outcome',
+    ],
+    diagram: `flowchart LR
+  A[supplyAsync] --> B[thenApply]
+  B -->|exception| C[skipped stages]
+  C --> D[exceptionally or handle]`,
+    readMinutes: 2,
+  },
+  {
+    id: 'exceptions-fire-and-forget',
+    title: 'Exceptions Lost in Fire-and-Forget Threads',
+    group: 'Concurrent & Async',
+    definition: "An uncaught exception in a manually spawned Thread or a submitted Runnable (not Callable) doesn't propagate to the caller — it's handed to the thread's UncaughtExceptionHandler, which by default just prints to stderr and is easy to miss in production logging pipelines.",
+    whyItMatters: [
+      "ExecutorService.submit(Runnable) swallows the exception into the Future silently — it only surfaces if you call future.get(); execute(Runnable) instead routes it to the uncaught exception handler, and if nobody set a custom one, it's stderr-only and invisible to most log aggregators",
+    ],
+    remember: [
+      "Set Thread.setDefaultUncaughtExceptionHandler() (or per-thread via a ThreadFactory) at application startup so pool threads' failures actually reach your logging/alerting instead of a container's stdout that nobody scrapes",
+      "A thread pool's worker thread dying from an uncaught exception (rather than being caught inside the task) can silently shrink the pool over time unless the pool replaces terminated threads",
+    ],
+    readMinutes: 2,
+    related: ['exceptions-completablefuture'],
+  },
+]
+
+const ioNioConcepts: ConceptCard[] = [
+  {
+    id: 'io-stream-vs-nio-model',
+    title: 'java.io Streams vs java.nio Channels',
+    group: 'Foundations',
+    definition: 'java.io models I/O as a blocking, byte-at-a-time (or buffered-block) stream tied to one thread per connection; java.nio models it as buffer-oriented channels that can be driven non-blocking by a single thread via a Selector.',
+    whyItMatters: [
+      'Streams are simpler to write and reason about; channels/selectors exist specifically to scale thread count independently of connection count',
+      'Picking NIO for a low-concurrency batch job or picking blocking streams for a 50k-connection server are both the classic wrong-tool mistakes',
+    ],
+    remember: [
+      'java.io is thread-per-connection: blocked threads just sit there consuming a stack',
+      "java.nio channels are bidirectional and buffer-based (vs. io's directional streams)",
+      'NIO.2 (java.nio.file, Java 7+) is a separate, unrelated upgrade to file/path handling — not about non-blocking I/O at all',
+    ],
+    interviewAngle: {
+      q: 'Why would you choose java.io over java.nio for a file-processing batch job?',
+      a: "Batch jobs are typically single-connection and CPU/IO-bound, not connection-count-bound — the blocking model is simpler to write correctly and NIO's non-blocking machinery buys nothing when there's no thread-multiplexing problem to solve.",
+    },
+    related: ['buffered-streams-syscalls', 'selector-reactor-pattern'],
+    readMinutes: 2,
+  },
+  {
+    id: 'buffered-streams-syscalls',
+    title: 'Why Buffered Streams Matter',
+    group: 'Foundations',
+    definition: 'BufferedInputStream/BufferedReader (and their Writer counterparts) batch many small reads/writes into fewer, larger native calls, because each unbuffered read()/write() on a FileInputStream or Socket is a system call.',
+    whyItMatters: [
+      'Wrapping a raw stream costs one allocation; forgetting to wrap it costs one syscall (and one context switch) per byte or per line read',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `try (var r = new BufferedReader(new FileReader("data.txt"))) {
+    String line;
+    while ((line = r.readLine()) != null) {
+        process(line);
+    }
+}`,
+      },
+      note: "readLine() only exists on BufferedReader — wrapping isn't just about speed, it's the API you actually want.",
+    },
+    remember: [
+      'Default buffer size is 8KB for both BufferedInputStream and BufferedReader',
+      'Double-buffering (e.g. BufferedReader over a BufferedInputStream over an InputStreamReader) wastes a copy for no benefit',
+      "PrintWriter's autoFlush only flushes on println/newline, not on every write — still buffer underneath it",
+    ],
+    interviewAngle: {
+      q: 'What actually goes wrong if you read a file byte-by-byte from a raw FileInputStream?',
+      a: "Every single read() call crosses into the kernel — for a multi-MB file that's millions of syscalls and context switches, turning an I/O-bound operation into one dominated by call overhead.",
+    },
+    related: ['io-stream-vs-nio-model', 'try-with-resources-io'],
+    readMinutes: 2,
+  },
+  {
+    id: 'bytebuffer-state-model',
+    title: 'ByteBuffer: position/limit/capacity and flip()',
+    group: 'NIO Buffers',
+    definition: 'A Buffer is a fixed-capacity array plus three cursors — position, limit, capacity — and flip()/clear()/rewind() are how you switch it between write-mode and read-mode.',
+    whyItMatters: [
+      'The single most common NIO bug is reading from a buffer you just filled without calling flip() first — you get zero or garbage bytes because position is sitting at the end',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `ByteBuffer buf = ByteBuffer.allocate(1024);
+channel.read(buf);   // fills buffer, position advances
+buf.flip();           // limit = position, position = 0 -> ready to read
+while (buf.hasRemaining()) {
+    process(buf.get());
+}
+buf.clear();           // position = 0, limit = capacity -> ready to write again`,
+      },
+      note: "flip() and clear() don't erase data; they only reposition the cursors.",
+    },
+    remember: [
+      'flip(): limit = current position, position = 0 — switches write mode to read mode',
+      'clear(): position = 0, limit = capacity — resets for writing, but old data is still physically present (not zeroed)',
+      'rewind(): position = 0, limit unchanged — re-read the same data without resetting limit',
+      'compact(): keeps unread data (between position and limit), shifts it to the front, and sets position after it — for partial reads',
+    ],
+    diagram: `flowchart LR
+  A[allocate] --> B[write via channel]
+  B --> C[flip]
+  C --> D[read via get]
+  D --> E[clear or compact]
+  E --> B`,
+    interviewAngle: {
+      q: 'You wrote data into a ByteBuffer via channel.read() and immediately called buf.get() — why is it returning nothing?',
+      a: 'After a write phase, position sits at the end of the written data and limit is still at capacity; get() reads from position forward, so without flip() it reads from the empty tail of the buffer, not the data you just wrote.',
+    },
+    related: ['memory-mapped-files'],
+    readMinutes: 2,
+  },
+  {
+    id: 'selector-reactor-pattern',
+    title: 'Selector and the Reactor Pattern',
+    group: 'NIO Non-Blocking I/O',
+    definition: 'A Selector lets one thread monitor many SelectableChannels for readiness (readable/writable/connectable/acceptable) via select(), dispatching only the channels that are actually ready — the classic single-threaded reactor.',
+    whyItMatters: [
+      'This is how you serve thousands of connections without a thread per connection — the tradeoff is that all handler code must be non-blocking or it stalls the whole event loop',
+      "Netty, Redis, and nginx-style event loops are all this pattern; understanding it explains why 'don't block the event loop' is a rule in those systems",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `Selector selector = Selector.open();
+channel.configureBlocking(false);
+channel.register(selector, SelectionKey.OP_READ);
+while (true) {
+    selector.select();
+    for (SelectionKey key : selector.selectedKeys()) {
+        if (key.isReadable()) handleRead(key);
+    }
+}`,
+      },
+    },
+    remember: [
+      'select() blocks until at least one registered channel is ready, or the optional timeout elapses',
+      'selectedKeys() is not auto-cleared — forgetting to remove a handled key means it reappears next iteration',
+      'One blocking call inside a handler stalls readiness checks for every other registered channel on that selector',
+    ],
+    interviewAngle: {
+      q: 'Why does a single misbehaving handler on a Netty-style event loop thread degrade every other connection on that loop?',
+      a: "The event loop thread is the same thread running select() and dispatching ready channels — any blocking call inside a handler occupies that thread, so no other channel's readiness gets checked or dispatched until it returns.",
+    },
+    related: ['bytebuffer-state-model', 'virtual-threads-io-impact'],
+    readMinutes: 3,
+  },
+  {
+    id: 'memory-mapped-files',
+    title: 'Memory-Mapped Files (MappedByteBuffer)',
+    group: 'NIO Non-Blocking I/O',
+    definition: "FileChannel.map() asks the OS to map a file region directly into the process's virtual address space, so reads/writes become plain memory accesses instead of read()/write() syscalls, with the OS page cache handling actual disk I/O lazily.",
+    whyItMatters: [
+      'Worth it for large files accessed randomly or repeatedly (indexes, log-structured stores, Kafka-style segment files) — not worth the complexity for small files or purely sequential one-pass reads',
+    ],
+    remember: [
+      'The map is backed by OS page cache; a page fault on first touch triggers the real disk read, which can surface as unpredictable latency spikes instead of a visible I/O call',
+      "MappedByteBuffer has no reliable unmap/close — the mapping is released only on GC of the buffer object, which historically caused file-deletion-on-Windows and resource-leak problems (Java 21's FileChannel.MapMode with Arena-based mapping addresses this)",
+      'Changes to a MappedByteBuffer.map(READ_WRITE) may not hit disk until the OS decides to flush, unless force() is called explicitly',
+    ],
+    interviewAngle: {
+      q: 'When is a memory-mapped file the wrong tool even though it sounds faster?',
+      a: "For small files or single sequential passes the syscall savings don't matter, but you still pay for page-fault unpredictability and the mapping lifecycle headache — a BufferedInputStream is simpler and just as fast in that case.",
+    },
+    related: ['bytebuffer-state-model'],
+    readMinutes: 2,
+  },
+  {
+    id: 'try-with-resources-io',
+    title: 'try-with-resources for I/O Cleanup',
+    group: 'Resource Management',
+    definition: 'Streams, Readers/Writers, and Channels all implement Closeable/AutoCloseable, and try-with-resources guarantees close() runs even on exception, closing resources in reverse declaration order.',
+    whyItMatters: [
+      'A leaked FileInputStream or Socket eventually exhausts file descriptors process-wide — a resource leak in one code path can take down unrelated code paths sharing the same process',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `try (var in = new FileInputStream(src);
+     var out = new FileOutputStream(dst)) {
+    in.transferTo(out);
+} // out closed first, then in — reverse of declaration order`,
+      },
+    },
+    remember: [
+      "If both the try block and close() throw, the try block's exception is primary; close()'s exception is attached as a suppressed exception, not lost",
+      'close() itself can throw — a naive manual finally-block close can mask the original exception by throwing over it; try-with-resources avoids that',
+    ],
+    interviewAngle: {
+      q: 'What happens if the try block throws AND close() also throws?',
+      a: "The try block's exception propagates as the primary one; the exception from close() is attached to it via addSuppressed() rather than replacing it, so nothing is silently lost.",
+    },
+    related: ['buffered-streams-syscalls'],
+    readMinutes: 1,
+  },
+  {
+    id: 'nio2-path-files-api',
+    title: 'NIO.2: Path and Files (Java 7+)',
+    group: 'NIO.2 File API',
+    definition: 'java.nio.file.Path and the Files utility class replaced java.io.File with a filesystem-abstraction API that supports symbolic links, atomic move, directory streaming, and pluggable filesystems (e.g. zip-as-filesystem).',
+    whyItMatters: [
+      "Files.move with ATOMIC_MOVE gives an actual atomic rename guarantee that File.renameTo never promised (renameTo's success/failure and atomicity are platform-dependent and silently unreliable)",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `Files.move(src, dst, StandardCopyOption.ATOMIC_MOVE);
+try (var stream = Files.walk(root)) {
+    stream.filter(Files::isRegularFile).forEach(System.out::println);
+}`,
+      },
+    },
+    remember: [
+      'File.renameTo() returns a boolean and gives no reason on failure; Files.move() throws a specific exception (e.g. AtomicMoveNotSupportedException) and supports explicit options',
+      'Files.walk() and Files.list() return lazy streams backed by an open directory handle — must be closed (try-with-resources) or the handle leaks',
+      'Path is filesystem-pluggable — the same API works against a zip file opened as a FileSystem, not just the default OS filesystem',
+    ],
+    interviewAngle: {
+      q: "Why prefer Files.move with ATOMIC_MOVE over File.renameTo for a 'write to temp file then publish' pattern?",
+      a: "renameTo's atomicity and even its success signalling are platform-dependent and can fail silently; ATOMIC_MOVE either succeeds atomically or throws a specific exception, which is what a safe publish pattern actually needs.",
+    },
+    related: ['io-stream-vs-nio-model'],
+    readMinutes: 2,
+  },
+  {
+    id: 'virtual-threads-io-impact',
+    title: 'Virtual Threads and the Blocking-I/O Tradeoff',
+    group: 'Modern Java Context',
+    definition: 'Virtual threads (Java 21+) make a blocking read/write cheap by unmounting the carrier platform thread while the I/O is pending, so blocking java.io/java.net code scales to huge connection counts without hand-rolled NIO reactor code.',
+    whyItMatters: [
+      "This doesn't obsolete NIO — Selector-based non-blocking I/O and virtual-thread-per-connection blocking I/O are converging solutions to the same C10K-style problem, and for new server code virtual threads now win on simplicity",
+    ],
+    remember: [
+      'Virtual threads park/unpark at blocking calls in java.io/java.net/java.nio (channel-based) that are virtual-thread-aware — not all blocking calls unmount cleanly (e.g. some synchronized blocks around blocking I/O historically pinned the carrier thread)',
+      'This is I/O-specific framing: the general virtual-threads model itself lives in the concurrency/modern-java material, not here',
+      'Direct low-level Selector/ByteBuffer code is still relevant for building the frameworks (Netty, database drivers) underneath virtual-thread-friendly blocking APIs',
+    ],
+    interviewAngle: {
+      q: "Does the arrival of virtual threads make learning NIO's Selector model pointless for a backend engineer?",
+      a: 'No — it changes what most application code needs to write (blocking style now scales fine), but the reactor/selector model still underlies the frameworks and drivers that make that possible, and non-JVM-aware blocking calls can still pin a carrier thread.',
+    },
+    related: ['selector-reactor-pattern'],
+    readMinutes: 2,
+  },
+]
+
+const serializationConcepts: ConceptCard[] = [
+  {
+    id: 'serializable-mechanics',
+    title: 'Serializable Is a Marker Interface',
+    group: 'Mechanics',
+    definition: "Implementing Serializable adds no methods — it's a flag telling the JVM's default serialization machinery that reflectively walking and writing this object's fields is allowed.",
+    whyItMatters: [
+      "Because there's no method to implement, the compiler can't catch a class that isn't actually safe to serialize (e.g. holds a Thread, Socket, or file handle) — it fails at runtime with NotSerializableException instead",
+    ],
+    remember: [
+      "Every non-transient field's type must also be Serializable, recursively, or serialization throws at runtime, not compile time",
+      'Static fields are never serialized — they belong to the class, not the instance',
+    ],
+    readMinutes: 2,
+    related: ['serial-version-uid', 'transient-keyword'],
+  },
+  {
+    id: 'serial-version-uid',
+    title: 'serialVersionUID',
+    group: 'Mechanics',
+    definition: "A version stamp written into the serialized bytes and checked against the loading class's own value; if omitted, the compiler generates one from the class's structure (fields, methods, interfaces) that shifts whenever that structure changes.",
+    whyItMatters: [
+      'Without an explicit UID, an innocuous change like adding a method or reordering fields regenerates the computed value and breaks deserialization of anything persisted or cached under the old class shape — the failure is an InvalidClassException at runtime, often long after the change shipped',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `public class Session implements Serializable {
+    private static final long serialVersionUID = 1L;
+    ...
+}`,
+      },
+      note: 'Pinning the UID explicitly decouples compatibility from incidental class edits — you control when the version actually breaks.',
+    },
+    remember: [
+      'Explicit UID: you decide when compatibility breaks. Omitted UID: the compiler decides, based on bytecode-derived hashing that varies across javac versions too',
+      'Bumping it deliberately is the correct move when a change genuinely makes old data unreadable',
+    ],
+    interviewAngle: {
+      q: 'Why is omitting serialVersionUID dangerous?',
+      a: 'The generated UID is derived from class structure, so any structural change (even a harmless one) silently changes it and breaks deserialization of previously-persisted instances.',
+    },
+    readMinutes: 2,
+    related: ['serializable-mechanics'],
+  },
+  {
+    id: 'transient-keyword',
+    title: 'transient Keyword',
+    group: 'Mechanics',
+    definition: "Marks a field to be skipped by default serialization — it's written as if it doesn't exist and comes back as the type's default value (null, 0, false) on deserialization.",
+    whyItMatters: [
+      "Used for fields that are either unsafe to serialize (sockets, threads, file handles), derivable from other state (caches, computed totals), or sensitive (raw passwords, unencrypted keys) that shouldn't cross a persistence boundary",
+    ],
+    remember: [
+      "A transient field isn't automatically restored — if it's not recomputed in readObject or elsewhere, the object comes back with a null/0/false hole",
+      "Doesn't apply to Externalizable, since that bypasses the default field-walking mechanism entirely",
+    ],
+    readMinutes: 1,
+    related: ['custom-serialization'],
+  },
+  {
+    id: 'custom-serialization',
+    title: 'writeObject / readObject',
+    group: 'Mechanics',
+    definition: "A class can define private writeObject(ObjectOutputStream) and readObject(ObjectInputStream) methods that the JVM invokes via reflection instead of the default field-by-field dump, letting it control exactly what's written and how state is rebuilt.",
+    whyItMatters: [
+      'Lets you recompute transient fields on read, validate invariants before accepting untrusted bytes, or serialize a field in a custom compact form',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `private void writeObject(ObjectOutputStream out) throws IOException {
+    out.defaultWriteObject();
+    out.writeInt(cache.size());
+}
+
+private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+    in.defaultReadObject();
+    cache = rebuildCache(in.readInt());
+}`,
+      },
+      note: "defaultWriteObject/defaultReadObject still handle the normal fields — these hooks add to that, they don't replace it unless you skip calling them.",
+    },
+    remember: [
+      "These methods are called via reflection despite being private — the JVM's serialization framework has special access",
+      "readObject is the natural place to re-validate an object's invariants, since deserialization is really just another constructor path that bypasses your normal ones",
+    ],
+    readMinutes: 2,
+    related: ['deserialization-attack-surface', 'externalizable'],
+  },
+  {
+    id: 'deserialization-attack-surface',
+    title: 'Deserialization as an Attack Vector',
+    group: 'Security',
+    definition: 'readObject reconstructs objects (and transitively, their fields) purely from attacker-controlled bytes before any application logic runs, so a crafted stream can trigger arbitrary code execution via gadget chains in classes already on the classpath.',
+    whyItMatters: [
+      'Well-known libraries (Commons Collections, Spring, Groovy) have shipped classes whose readObject/equals/hashCode chains can be composed into remote code execution — this is why deserializing untrusted input with native Java serialization is treated as a critical vulnerability class, not a theoretical one',
+    ],
+    remember: [
+      "The vulnerability isn't a bug in your class — it's in transitively reachable classes on the classpath that you don't control, which is what makes it so hard to fully close off",
+      'Mitigations: ObjectInputFilter (JEP 290, Java 9+) allowlisting acceptable classes, avoiding native serialization for untrusted input entirely, or using look-ahead deserialization',
+    ],
+    interviewAngle: {
+      q: 'Why do many teams ban java.io.Serializable for anything touching untrusted input?',
+      a: 'Deserialization runs before validation logic — a crafted byte stream can chain together classes already on the classpath into remote code execution, independent of any bug in your own code.',
+    },
+    diagram: `flowchart LR
+  A[Attacker bytes] --> B[readObject]
+  B --> C[Gadget chain]
+  C --> D[Arbitrary code]`,
+    readMinutes: 2,
+    related: ['custom-serialization', 'json-replaces-native'],
+  },
+  {
+    id: 'externalizable',
+    title: 'Externalizable vs Serializable',
+    group: 'Mechanics',
+    definition: "Externalizable hands full control to writeExternal/readExternal (both public) with no default field-walking at all, versus Serializable's reflective default plus optional writeObject/readObject hooks.",
+    whyItMatters: [
+      'No reflection-driven field dump means smaller output and faster serialization for hot paths, at the cost of writing every field by hand and manually keeping read/write order in sync',
+    ],
+    remember: [
+      'Externalizable requires a public no-arg constructor — the JVM calls it before readExternal populates state, unlike Serializable which can bypass constructors entirely via reflection',
+      'Rarely chosen today; mentioned mainly as a performance-oriented alternative when native serialization is unavoidable',
+    ],
+    readMinutes: 1,
+    related: ['custom-serialization', 'serialization-performance'],
+  },
+  {
+    id: 'json-replaces-native',
+    title: 'Why JSON/Protobuf Displaced Native Serialization',
+    group: 'Modern Context',
+    definition: 'Cross-language interoperability, human-readable debugging, schema evolution without brittle UID matching, and immunity to gadget-chain deserialization attacks made JSON and Protobuf/Avro the default choice for service boundaries, leaving native serialization mostly to same-JVM or same-cluster use.',
+    whyItMatters: [
+      'Native serialization ties both ends to the exact same class bytecode shape (or a carefully matched serialVersionUID), which breaks down the moment services are deployed independently or written in another language',
+    ],
+    remember: [
+      'Native serialization still turns up where both ends are trusted, same-version JVMs: Hazelcast/Ehcache distributed caches, servlet container session replication, and legacy RMI',
+      "Protobuf/Avro add compact binary encoding plus explicit schema evolution rules — a middle ground JSON doesn't give you",
+    ],
+    readMinutes: 2,
+    related: ['deserialization-attack-surface', 'serialization-performance'],
+  },
+  {
+    id: 'records-serialization',
+    title: 'Records and Serialization',
+    group: 'Modern Context',
+    definition: 'A record can implement Serializable, but it deserializes through its canonical constructor rather than field-by-field reflection, so constructor validation always runs even on deserialized data.',
+    whyItMatters: [
+      "This closes a classic exploit class where readObject bypassed constructor invariant checks — a record's compact constructor can't be skipped, so a crafted byte stream can't produce an object that violates its own validation logic",
+    ],
+    remember: [
+      'writeObject/readObject/readObjectNoData customization is disallowed for records — the format is fixed to (component values) through the canonical constructor',
+      "serialVersionUID still applies the same way; records aren't exempt from that pitfall",
+    ],
+    readMinutes: 1,
+    related: ['custom-serialization', 'deserialization-attack-surface'],
+  },
+  {
+    id: 'serialization-performance',
+    title: 'Serialization Performance Cost',
+    group: 'Modern Context',
+    definition: 'Default Java serialization is reflection-heavy and writes verbose per-object metadata (class descriptors, field names, type info) on first occurrence of each class, making it slower and larger on the wire than hand-rolled or schema-based binary formats.',
+    whyItMatters: [
+      "The class descriptor overhead means many small objects serialize far worse than one large object — a real cost in high-throughput caching or messaging paths, and part of why teams profile before assuming native serialization is 'good enough'",
+    ],
+    remember: [
+      'Externalizable and hand-written writeObject can cut both size and CPU cost meaningfully versus default reflection-based serialization',
+      'This cost, not just security, is a reason distributed systems moved to Protobuf/Kryo/Avro for hot paths',
+    ],
+    readMinutes: 1,
+    related: ['externalizable', 'json-replaces-native'],
+  },
+]
+
+const reflectionConcepts: ConceptCard[] = [
+  {
+    id: 'class-introspection',
+    title: 'Class/Method/Field Introspection',
+    group: 'Reflection Mechanics',
+    definition: 'Every loaded type has a runtime Class object that exposes its constructors, methods, fields, and annotations for programmatic inspection via java.lang.reflect.',
+    whyItMatters: [
+      'This is the entry point every framework uses to discover "what does this bean/entity/test class look like" without the developer writing any wiring code',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `Class<?> clazz = Class.forName("com.app.UserService");
+Method[] methods = clazz.getDeclaredMethods();
+Field field = clazz.getDeclaredField("repository");`,
+      },
+    },
+    remember: [
+      'getMethods() returns only public members (including inherited); getDeclaredMethods() returns all members declared on that exact class, including private, but not inherited ones',
+      'Class.forName triggers static initialization by default; getting a Class reference via .class does not',
+    ],
+    interviewAngle: {
+      q: 'Why does getDeclaredFields() not return inherited fields?',
+      a: "Because it reflects only what's declared directly on that class's bytecode — walking a superclass chain with getSuperclass() is the caller's job, which is exactly what frameworks like Jackson do to serialize inherited properties.",
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'reflective-invocation',
+    title: 'Invoking Methods Reflectively',
+    group: 'Reflection Mechanics',
+    definition: 'Method.invoke() and Field.get/set() call code by passing the target object and boxed arguments as an Object[], bypassing normal static method resolution.',
+    example: {
+      code: {
+        language: 'java',
+        code: `Method m = clazz.getDeclaredMethod("save", User.class);
+m.setAccessible(true);
+Object result = m.invoke(serviceInstance, someUser);`,
+      },
+    },
+    remember: [
+      'invoke() wraps any exception the target method throws in an InvocationTargetException — you must unwrap getCause() to see the real error, a common debugging trap',
+      'Primitive arguments get autoboxed, and Method.invoke does dynamic dispatch on the runtime type of the target object, same as a normal virtual call',
+    ],
+    related: ['reflection-performance-cost', 'class-introspection'],
+    readMinutes: 2,
+  },
+  {
+    id: 'reflection-performance-cost',
+    title: 'The Performance Cost of Reflection',
+    group: 'Cost & Optimization',
+    definition: "Reflective calls are slower than direct calls because the JIT can't inline them, argument arrays force boxing/unboxing, and each call pays access-check and lookup overhead unless that overhead is cached.",
+    whyItMatters: [
+      'The lookup (getMethod/getDeclaredField) is the expensive part, not the invoke itself — so every serious framework resolves a Method/Field/Constructor once and caches it, rather than re-resolving it on every request',
+    ],
+    remember: [
+      'setAccessible(true) also disables the per-call access check, which itself is a meaningful speedup — frameworks do this once at cache-build time, not per call',
+      'Modern JVMs generate a lightweight bytecode accessor after ~15 invocations (inflation), closing much of the gap after warmup — but the first calls and any one-off reflective code stay slow',
+    ],
+    interviewAngle: {
+      q: 'If reflection is slow, why does Spring feel fast at runtime?',
+      a: 'Because Spring resolves all the Method/Field/Constructor objects it needs once during context startup (or ahead-of-time in a AOT/native-image build) and caches them — the per-request cost is a cached invoke, not a fresh lookup.',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'setaccessible-encapsulation',
+    title: 'setAccessible() and Breaking Encapsulation',
+    group: 'Encapsulation & the Module System',
+    definition: 'setAccessible(true) tells the JVM to skip Java-language access checks (private/protected) for a specific reflected member, letting caller code read, write, or invoke it anyway.',
+    whyItMatters: [
+      'This is how ORMs like Hibernate populate private fields directly without requiring public setters, and how test frameworks reach into private state — but it means "private" is only a compile-time guarantee, not a runtime one',
+    ],
+    remember: [
+      "setAccessible() can throw InaccessibleObjectException on Java 9+ if the target's module doesn't explicitly open that package to the caller's module",
+      "It's a security-sensitive call — a SecurityManager (when one was in use) could deny it; frameworks that need broad access historically requested wide permissions",
+    ],
+    related: ['strong-encapsulation-jpms'],
+    readMinutes: 2,
+  },
+  {
+    id: 'strong-encapsulation-jpms',
+    title: 'Strong Encapsulation (JPMS, Java 9+)',
+    group: 'Encapsulation & the Module System',
+    definition: "The module system (JPMS) by default hides a module's non-exported packages from reflection entirely, and even exported packages block deep reflection (setAccessible into private members) unless the module explicitly 'opens' that package.",
+    whyItMatters: [
+      'This broke reflection-heavy frameworks (Spring, Hibernate, Mockito) on early Java 9 upgrades until they added --add-opens flags or module-info opens directives — a real migration pain point that\'s a common "have you hit this" interview probe',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `module com.app {
+  opens com.app.model to org.hibernate.orm.core;
+}`,
+      },
+    },
+    remember: [
+      "exports allows normal compile-time/public access; opens additionally allows deep reflection (setAccessible) at runtime — they're separate grants",
+      "Unnamed/classpath modules (the default when you don't use module-info.java) stay in weaker legacy-reflection mode, which is why most Spring apps never notice this unless they adopt JPMS explicitly",
+    ],
+    interviewAngle: {
+      q: 'Why did upgrading a reflection-heavy app to Java 9+ sometimes break at runtime with no compile errors?',
+      a: 'Because strong encapsulation is enforced at runtime, not compile time — code that reflectively accessed private members of another module compiled fine but threw InaccessibleObjectException the first time it actually ran, until --add-opens was added.',
+    },
+    readMinutes: 3,
+  },
+  {
+    id: 'annotation-retention',
+    title: 'Annotation Retention Policies',
+    group: 'Annotations',
+    definition: '@Retention controls how long an annotation survives: SOURCE (discarded by the compiler), CLASS (kept in bytecode but not loaded by the JVM at runtime, the default), or RUNTIME (kept and queryable via reflection).',
+    whyItMatters: [
+      'Any annotation a framework reads with reflection — @Autowired, @Transactional, @Test — must be RUNTIME-retained, or getAnnotation() simply returns null with no error, a classic silent-failure bug when writing a custom annotation',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface Loggable {}`,
+      },
+    },
+    remember: [
+      "SOURCE is for compiler-only tools (e.g. @Override, Lombok's own markers); CLASS is the default and rarely what you want since almost nothing reads it; RUNTIME is required for anything reflection-based",
+    ],
+    related: ['apt-vs-runtime-reflection'],
+    readMinutes: 2,
+  },
+  {
+    id: 'apt-vs-runtime-reflection',
+    title: 'Annotation Processing (APT) vs Runtime Reflection',
+    group: 'Annotations',
+    definition: "APT (javax.annotation.processing) runs during compilation and generates new source/bytecode from annotations; runtime reflection reads annotations and structure after the class is already loaded — they're two unrelated mechanisms that happen to both start with '@'.",
+    whyItMatters: [
+      'Lombok and MapStruct use APT to generate real code at compile time (zero runtime cost, but the generated code is what actually runs); Spring and Hibernate use RUNTIME-retained annotations read reflectively at startup or per-call (runtime cost, but no build-step code generation needed)',
+    ],
+    remember: [
+      "A CLASS or SOURCE-retained annotation can still be read by an annotation processor at compile time — processors work at the source/bytecode level, so they don't need RUNTIME retention at all",
+      "Confusing the two is a common mistake: adding @Retention(RUNTIME) to an annotation meant only for an APT processor doesn't break anything, but it's pointless bytecode bloat",
+    ],
+    diagram: `flowchart LR
+  A[Source annotations] -->|compile time| B[APT generates code]
+  A -->|kept if RUNTIME| C[Bytecode]
+  C -->|reflection at runtime| D[Framework reads it]`,
+    interviewAngle: {
+      q: "Why is Lombok's @Getter effectively free at runtime while Spring's @Autowired isn't?",
+      a: "Lombok is an annotation processor: it generates a real getter method into the .class file at compile time, so at runtime it's just a normal method call. @Autowired is read reflectively by Spring's container at startup — there's real reflection cost, just paid once during context initialization instead of per call.",
+    },
+    readMinutes: 3,
+  },
+  {
+    id: 'di-reflection-under-hood',
+    title: 'How DI Frameworks Use Reflection',
+    group: 'Framework Internals',
+    definition: 'A DI container scans classpath classes for RUNTIME-retained markers (like @Component), reflectively locates a constructor or setter/field to inject into, resolves matching beans, and calls that constructor/setter/field reflectively to wire the object graph.',
+    whyItMatters: [
+      'This is literally what "the container instantiates your beans" means mechanically — Class.forName + getDeclaredConstructors + Constructor.newInstance + Field.set, all cached after the first resolution per bean definition',
+    ],
+    remember: [
+      "Constructor injection uses Constructor.newInstance(resolvedArgs); field injection uses setAccessible(true) + Field.set on an already-constructed instance — which is one reason constructor injection is considered cleaner: it doesn't need to break encapsulation on an already-live object",
+      'Component scanning itself is reflection over the classpath (walking packages, loading each Class, checking annotations) — this is a real chunk of Spring Boot startup time, which is why AOT/native-image builds try to do it ahead of time instead',
+    ],
+    related: ['reflective-invocation', 'dynamic-proxies'],
+    readMinutes: 2,
+  },
+  {
+    id: 'dynamic-proxies',
+    title: 'Dynamic Proxies (Proxy.newProxyInstance)',
+    group: 'Framework Internals',
+    definition: 'java.lang.reflect.Proxy generates a class implementing a given set of interfaces entirely at runtime, routing every method call through a single InvocationHandler you supply — no source or .class file for the proxy ever exists on disk.',
+    example: {
+      code: {
+        language: 'java',
+        code: `UserRepo proxy = (UserRepo) Proxy.newProxyInstance(
+  loader, new Class[]{UserRepo.class}, (target, method, args) -> {
+    System.out.println("before " + method.getName());
+    return method.invoke(realRepo, args);
+  });`,
+      },
+    },
+    whyItMatters: [
+      "This is the actual mechanism behind Spring's interface-based AOP (@Transactional, @Cacheable when proxying an interface-typed bean): the proxy intercepts the call, runs advice, then delegates to the real target via reflection",
+    ],
+    remember: [
+      'JDK dynamic proxies only work through interfaces, since the generated class implements them; proxying a concrete class with no interface requires bytecode generation (CGLIB, which Spring falls back to) instead of java.lang.reflect.Proxy',
+      "Every call through the proxy pays an extra reflective invoke() plus the InvocationHandler's own logic, which is part of why @Transactional on a self-invoked method (a.b() calling a.c() within the same class) doesn't trigger the proxy — the call never leaves the object to go through it",
+    ],
+    diagram: `flowchart LR
+  A[Caller] --> B[Dynamic Proxy]
+  B --> C[InvocationHandler]
+  C --> D[Real Target]`,
+    interviewAngle: {
+      q: 'Why does calling a @Transactional method from another method in the same class silently skip the transaction?',
+      a: 'Because Spring AOP works by wrapping the bean in a proxy that intercepts calls arriving from outside the object — an internal this.method() call never passes through the proxy, so the advice (starting a transaction) never runs.',
+    },
+    related: ['di-reflection-under-hood'],
+    readMinutes: 3,
+  },
+]
+
+const designPatternsConcepts: ConceptCard[] = [
+  {
+    id: 'singleton-thread-safe-lazy-init',
+    title: 'Singleton: Thread-Safe Lazy Init',
+    group: 'Singleton',
+    definition: 'Double-checked locking (DCL) lets a Singleton lazily initialize without synchronizing every call, but only works correctly if the instance field is declared volatile.',
+    whyItMatters: [
+      "Without volatile, the JIT/JMM can reorder the constructor's writes after the reference assignment, so another thread can observe a non-null but partially-constructed object",
+      'volatile inserts the happens-before edge that makes the publish safe',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `public class Config {
+    private static volatile Config instance;
+
+    public static Config getInstance() {
+        if (instance == null) {
+            synchronized (Config.class) {
+                if (instance == null) {
+                    instance = new Config();
+                }
+            }
+        }
+        return instance;
+    }
+}`,
+      },
+      note: 'Both null checks are required: the outer one avoids locking on every call, the inner one avoids a second thread re-constructing after acquiring the lock.',
+    },
+    remember: [
+      'Missing volatile is the classic broken-DCL bug — compiles fine, fails intermittently under real concurrency',
+      'The initialization-on-demand holder idiom (a static nested class) gets lazy thread-safe init for free via classloader guarantees, no volatile needed',
+      "Simplest correct option when laziness isn't required: eager static final field",
+    ],
+    interviewAngle: {
+      q: 'Why does DCL Singleton need volatile?',
+      a: "Without it, a reader thread can see a non-null reference to an object whose constructor hasn't finished writing its fields, because the JMM permits reordering the object's internal writes past the reference publish.",
+    },
+    related: ['singleton-enum', 'singleton-testability'],
+    readMinutes: 2,
+  },
+  {
+    id: 'singleton-enum',
+    title: 'Enum Singleton',
+    group: 'Singleton',
+    definition: "Declaring a single-element enum is Effective Java's recommended Singleton implementation: the JVM guarantees exactly one instance, thread-safe construction, and serialization safety for free.",
+    whyItMatters: [
+      'A regular class Singleton can be broken by reflection (calling a private constructor) or by naive custom serialization creating a second instance on deserialize — enum is immune to both',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `public enum ConnectionPool {
+    INSTANCE;
+
+    public Connection borrow() { /* ... */ return null; }
+}`,
+      },
+    },
+    remember: [
+      'Class-loading itself is thread-safe by JLS spec, so enum init needs no explicit synchronization',
+      "Can't extend a class (enums can't have a superclass other than Enum), which is the usual objection to using it",
+    ],
+    related: ['singleton-thread-safe-lazy-init'],
+    readMinutes: 1,
+  },
+  {
+    id: 'singleton-testability',
+    title: 'Singleton as an Anti-Pattern',
+    group: 'Singleton',
+    definition: 'Singleton is often criticized less for thread-safety and more because it hardcodes a single global access point, which hides a dependency and makes substitution for tests impossible.',
+    whyItMatters: [
+      "getInstance() called deep inside a method is an invisible dependency — it doesn't show up in the constructor or method signature, so callers and tests can't see or override it",
+      'Global mutable state shared across a test suite causes order-dependent test failures unless every test resets it',
+    ],
+    remember: [
+      "The fix usually isn't 'stop using Singletons', it's 'let a DI container manage the single instance and inject it' — same one-instance guarantee, but the dependency is now visible and swappable",
+      "'Singleton' the pattern (enforced by the class itself, via a private constructor) and 'singleton scope' (enforced by a container, e.g. a Spring bean) solve the same problem — the container approach keeps testability",
+    ],
+    interviewAngle: {
+      q: "What's actually wrong with Singleton?",
+      a: "Not thread-safety — it's that getInstance() is an invisible, hardcoded dependency that can't be mocked or swapped in a test, unlike a constructor-injected collaborator.",
+    },
+    related: ['singleton-thread-safe-lazy-init', 'dependency-injection-principle'],
+    readMinutes: 2,
+  },
+  {
+    id: 'builder-vs-telescoping',
+    title: 'Builder vs Telescoping Constructors',
+    group: 'Builder',
+    definition: 'Builder trades telescoping constructor overloads (or error-prone all-args calls) for a fluent, named, order-independent way to assemble an object with many optional fields.',
+    whyItMatters: [
+      'A constructor with 6+ params, several optional, forces callers to either write an overload for every combination (telescoping) or pass positional nulls/defaults that are easy to swap by mistake',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `HttpRequest req = HttpRequest.builder()
+    .url("/users")
+    .method("POST")
+    .timeoutMs(500)
+    .build();`,
+      },
+    },
+    remember: [
+      'Real payoff is when there are several optional fields with sane defaults, not just many required ones',
+      "A mutable Builder itself should never be shared across threads — it's a single-use scratchpad, discard it after build()",
+    ],
+    related: ['builder-vs-records'],
+    readMinutes: 2,
+  },
+  {
+    id: 'builder-vs-records',
+    title: 'Builder vs Records for Simple Cases',
+    group: 'Builder',
+    definition: "For a small, mostly-required-field value object, a Java record's canonical constructor is simpler and just as safe as a Builder — Builder only earns its ceremony once there are several optional/defaulted fields or validation that benefits from staged assembly.",
+    whyItMatters: [
+      'A record with 3-4 required fields and a compact constructor for validation gives immutability and equals/hashCode/toString for free, with none of the Builder boilerplate',
+      'Adding a Builder over a record (or a static factory that returns one) is fine once optional fields multiply — the record stays the immutable target type, Builder is just the assembly step',
+    ],
+    remember: [
+      'Rule of thumb: reach for record first; add a Builder only when the constructor call site becomes ambiguous or option-heavy, not by default',
+      "Lombok's @Builder became less necessary post-records for the simple-object case, but is still common for classes with many optional fields where a record's fixed component list doesn't fit",
+    ],
+    interviewAngle: {
+      q: 'When does Builder still earn its complexity over a record?',
+      a: 'When there are several optional fields with different defaults, or when construction needs staged/conditional logic — a record forces every field into one fixed constructor call, which gets unreadable past a handful of optional params.',
+    },
+    related: ['builder-vs-telescoping'],
+    readMinutes: 2,
+  },
+  {
+    id: 'factory-method-vs-abstract-factory',
+    title: 'Factory Method vs Abstract Factory',
+    group: 'Factory',
+    definition: 'Factory Method is a single overridable creation method for one product type; Abstract Factory is an interface bundling several related Factory Methods so a caller gets a consistent family of products without knowing the concrete family.',
+    whyItMatters: [
+      "The two are often confused because both hide 'new' behind a method — the distinguishing question is whether you're creating one product (Factory Method) or a coordinated set of related products (Abstract Factory)",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `interface UIFactory {
+    Button createButton();
+    Checkbox createCheckbox();
+}
+
+class DarkUIFactory implements UIFactory {
+    public Button createButton() { return new DarkButton(); }
+    public Checkbox createCheckbox() { return new DarkCheckbox(); }
+}`,
+      },
+      note: 'UIFactory is the Abstract Factory; each create method inside it is a Factory Method.',
+    },
+    remember: [
+      'Factory Method usually lives as an overridable method on a base/abstract class (subclasses decide the concrete type)',
+      'Abstract Factory usually lives as a standalone interface with multiple creation methods, implemented per product family',
+      'Both exist to let calling code depend on an interface/abstraction, not a concrete constructor call',
+    ],
+    interviewAngle: {
+      q: 'How do you tell Factory Method and Abstract Factory apart in review?',
+      a: 'Count the products: one overridable creation method for one product type is Factory Method; an interface exposing several creation methods that must stay consistent with each other (same theme/family) is Abstract Factory.',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'strategy-vs-lambdas',
+    title: 'Strategy Pattern via Lambdas',
+    group: 'Strategy & Behavior',
+    definition: "Strategy — swapping an algorithm's implementation behind a common interface — used to require a class hierarchy per strategy; a functional interface plus a lambda or method reference gives the same swap with none of the boilerplate.",
+    whyItMatters: [
+      'Pre-Java-8, each strategy meant a named class implementing an interface, often just to wrap one method — noisy for something conceptually this small',
+      'Comparator, Runnable, and Function are just Strategy interfaces the JDK already ships',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `interface PricingStrategy { BigDecimal price(Order o); }
+
+PricingStrategy bulk = order -> order.total().multiply(DISCOUNT);
+PricingStrategy standard = Order::total;`,
+      },
+    },
+    remember: [
+      'Keep the strategy as a named class (not a lambda) when it needs its own state, multiple methods, or is complex enough to warrant unit tests on its own — lambdas fit stateless, single-method swaps',
+      "This is the pattern most visibly 'absorbed' into the language post-Java-8 — interviewers probe whether you still reach for a class hierarchy out of habit",
+    ],
+    interviewAngle: {
+      q: "Is Strategy still a pattern you'd implement with a class hierarchy in modern Java?",
+      a: 'Only if a strategy needs its own state or multiple related methods — a stateless single-method strategy is just a functional interface plus a lambda now.',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'observer-event-driven',
+    title: 'Observer Pattern & Event-Driven Systems',
+    group: 'Strategy & Behavior',
+    definition: "Observer — subjects notifying registered listeners of state changes — is the in-process ancestor of today's event-driven architectures (application events, message brokers, reactive streams).",
+    whyItMatters: [
+      "Spring's ApplicationEventPublisher/@EventListener, JavaFX listeners, and pub/sub message brokers are all Observer at different scales — in-process synchronous, in-process async, or cross-process",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `interface OrderListener { void onPlaced(Order o); }
+
+class OrderService {
+    private final List<OrderListener> listeners = new ArrayList<>();
+    void place(Order o) {
+        listeners.forEach(l -> l.onPlaced(o));
+    }
+}`,
+      },
+    },
+    remember: [
+      'Naive in-process Observer notifies synchronously on the calling thread — a slow or throwing listener blocks or breaks the publisher unless you decouple with an executor or event bus',
+      'Watch for listener leaks: observers that register but never unregister keep the subject reachable and prevent GC of the observer',
+    ],
+    interviewAngle: {
+      q: 'What breaks a naive synchronous Observer implementation at scale?',
+      a: "One slow or exception-throwing listener stalls or crashes the whole publish call because listeners run inline on the publisher's thread — production systems decouple via an async event bus or message queue instead.",
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'decorator-vs-proxy',
+    title: 'Decorator vs Proxy',
+    group: 'Structural Wrapping',
+    definition: 'Both wrap an object behind the same interface, but Decorator adds new behavior/responsibility to every call, while Proxy controls access to the wrapped object (lazy loading, security, remoting) without changing what the call means.',
+    whyItMatters: [
+      "Confusing the two in review misses the actual design question: 'am I adding capability' (Decorator) vs 'am I gatekeeping/mediating access' (Proxy)",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `InputStream in = new BufferedInputStream(new FileInputStream(f)); // Decorator: adds buffering
+
+UserService svc = (UserService) Proxy.newProxyInstance(
+    loader, interfaces, (p, m, args) -> { checkAuth(); return m.invoke(real, args); }); // Proxy: gatekeeps access`,
+      },
+    },
+    remember: [
+      'Java I/O streams (BufferedInputStream wrapping FileInputStream) are the textbook Decorator chain',
+      "Spring's @Transactional/@Cacheable proxies and JDK dynamic proxies are Proxy — they intercept calls to add cross-cutting behavior around access, not to compose new domain behavior",
+      'Structurally near-identical (both implement the same interface as the wrapped object and delegate) — the distinguishing question is intent: adding behavior vs controlling access',
+    ],
+    interviewAngle: {
+      q: 'Structurally Decorator and Proxy look the same — how do you tell them apart in a design discussion?',
+      a: 'By intent, not structure: Decorator stacks additional responsibilities onto every call (buffering, compression); Proxy mediates access to the same call without changing its meaning (lazy init, auth, remoting).',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'dependency-injection-principle',
+    title: 'Dependency Injection as a General Principle',
+    group: 'Dependency Injection',
+    definition: 'DI is Inversion of Control applied to object wiring: a class declares what it needs (via constructor/setter) instead of constructing or looking up its own collaborators, and something external supplies them.',
+    whyItMatters: [
+      "The pattern predates and doesn't require any framework — manually passing collaborators into a constructor from main() is DI; Spring/Guice/Dagger just automate the wiring at scale",
+      'Because dependencies are declared, not looked up, any collaborator can be swapped for a test double without touching the class under test',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `class OrderService {
+    private final PaymentGateway gateway; // declared, not constructed here
+
+    OrderService(PaymentGateway gateway) {
+        this.gateway = gateway;
+    }
+}`,
+      },
+    },
+    remember: [
+      "DI is the fix for the Singleton-as-anti-pattern problem: same 'one instance shared everywhere' outcome, but the dependency is visible in the constructor and swappable in tests",
+      'Constructor injection over field/setter injection is the senior default — it makes required dependencies impossible to construct in an incomplete state and keeps the class usable without the framework',
+    ],
+    interviewAngle: {
+      q: 'Is Dependency Injection a Spring concept?',
+      a: "No — it's Inversion of Control applied to object wiring, older than Spring; Spring/Guice/Dagger are just automated containers for a principle you can (and interviewers expect you to be able to) apply by hand.",
+    },
+    related: ['singleton-testability'],
+    readMinutes: 2,
+    diagram: `flowchart LR
+  Client --> Interface
+  Container -->|injects| Interface
+  Interface --> Implementation`,
+  },
+]
+
+const advancedInternalsConcepts: ConceptCard[] = [
+  {
+    id: 'bytecode-basics',
+    title: 'Reading Bytecode: Why It Explains Weird Behavior',
+    group: 'Bytecode',
+    definition: 'javac compiles Java source to a stack-based bytecode instruction set (in .class files) that says nothing about the source-level constructs (loops, switch, autoboxing) used to produce it — only what the JVM actually executes.',
+    whyItMatters: [
+      "Source-level reasoning ('this should be one operation') can be wrong — a single line can desugar to several allocations or method calls, which is exactly the class of bug javap -c exposes in seconds",
+      "javap -c ClassName is the fastest way to confirm whether a compiler optimization actually happened, or whether autoboxing/string concatenation snuck in an allocation you didn't intend",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `String s = "a" + "b" + i;
+// javap -c shows: constant folding for the literal part,
+// but a StringBuilder chain once a variable is involved`,
+      },
+      note: 'The compiler folds "a"+"b" into one constant at compile time but can\'t fold in i — that part becomes runtime StringBuilder calls',
+    },
+    remember: [
+      'javap -c <class> disassembles compiled bytecode without needing source',
+      'Bytecode is stack-based: values get pushed/popped, not stored in named registers like x86',
+      'Constant expressions of literals get folded at compile time; anything involving a variable does not',
+    ],
+    interviewAngle: {
+      q: 'Why would you ever read bytecode in a normal debugging session?',
+      a: "To settle disputes source can't answer — did this loop really get unrolled, is this string concat allocating, did this get inlined — without guessing from behavior alone",
+    },
+    related: ['string-switch-internals', 'autoboxing-integer-cache', 'varargs-array-allocation'],
+    readMinutes: 2,
+  },
+  {
+    id: 'method-inlining',
+    title: 'Method Inlining: Why Small Methods Are Free',
+    group: 'JIT Optimizations',
+    definition: 'The JIT can replace a call to a small, hot, non-megamorphic method with its body directly at the call site, eliminating call overhead and — critically — opening the door to further optimizations (escape analysis, dead code elimination) that only work within a single compiled unit.',
+    whyItMatters: [
+      "Inlining is the optimization that enables most other optimizations — a getter call that doesn't get inlined blocks escape analysis on the object it returns, so 'just add a getter' isn't always free the way it looks",
+      'Megamorphic call sites (3+ different implementations seen at one call site) defeat inlining, which is one real, measurable cost of over-using interfaces/polymorphism on ultra-hot paths',
+    ],
+    remember: [
+      "Bytecode size caps inlining eligibility (-XX:MaxInlineSize, -XX:FreqInlineSize) — very large 'small' methods can silently fall outside the default threshold",
+      "Virtual/interface calls can still be inlined via 'inline caching' when the JIT observes only one or two actual implementations at that call site historically",
+      '-XX:+PrintInlining (with -XX:+UnlockDiagnosticVMOptions) shows real inlining decisions per call site',
+    ],
+    interviewAngle: {
+      q: 'Why does wrapping a hot field access in a trivial getter method not cost anything at runtime?',
+      a: "The JIT inlines small hot methods, replacing the call with the field access itself — after inlining there's no call overhead, and the inlined code becomes eligible for further optimizations like escape analysis",
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'string-switch-internals',
+    title: 'String switch: Hash-Then-Equals Under the Hood',
+    group: 'Language Desugaring',
+    definition: 'A switch on a String is compiled to two nested switches on int — the first switches on hashCode() to jump to a candidate label, the second confirms with equals() to guard against hash collisions — the JVM never had native support for String switching.',
+    whyItMatters: [
+      "Explains a real gotcha: two case labels with colliding hashCode()s don't misbehave (equals() still disambiguates), but understanding this is what separates 'I memorized it works' from 'I know why it's still correct despite collisions'",
+      "It's a good worked example of javac doing meaningful desugaring work — the same lesson applies to enhanced-for, try-with-resources, and autoboxing",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `switch (s) {
+  case "a": ...
+  case "b": ...
+}
+// desugars roughly to:
+switch (s.hashCode()) {
+  case 97: if (s.equals("a")) { ... } break;
+  case 98: if (s.equals("b")) { ... } break;
+}`,
+      },
+      note: 'The equals() guard is what makes hash collisions safe, not just fast',
+    },
+    remember: [
+      'Two-stage: hashCode() dispatch first, equals() confirmation second — a collision falls through to the next candidate or the default, it never picks the wrong branch',
+      'javap -c on a compiled String-switch method is the fastest way to see this directly',
+    ],
+    interviewAngle: {
+      q: 'Since the JVM has no bytecode instruction for switching on String, how does a String switch actually work?',
+      a: 'javac desugars it into a hashCode()-based int switch to jump to a candidate case, followed by an equals() check to confirm — so hash collisions between case labels are handled safely, just not optimally',
+    },
+    related: ['bytecode-basics'],
+    readMinutes: 2,
+  },
+  {
+    id: 'autoboxing-integer-cache',
+    title: 'Autoboxing and the Integer Cache (-128 to 127)',
+    group: 'Language Desugaring',
+    definition: 'Autoboxing of int literals in the range -128 to 127 (and similarly for Byte, Short, Long, Character within their small ranges) returns a cached, shared instance via valueOf(), so == comparisons on boxed values in that range accidentally succeed while identical code just outside it fails.',
+    whyItMatters: [
+      "This is one of the most common real production bugs: code that works in dev/test with small sample values ('it always passed with ==!') breaks in production once values exceed 127, because it silently stopped hitting the cache",
+      "new Integer(x) (deprecated since Java 9) always bypasses the cache and allocates a fresh object even inside the cached range — a useful fact for explaining why some code 'defeats' the cache on purpose or by accident",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `Integer a = 127, b = 127;
+System.out.println(a == b); // true, cached
+Integer c = 128, d = 128;
+System.out.println(c == d); // false, not cached`,
+      },
+      note: 'This is exactly why == on boxed types is a correctness bug waiting to happen — equals() is the only safe comparison',
+    },
+    remember: [
+      "Cache range is fixed at -128..127 for Integer; -XX:AutoBoxCacheMax can raise the upper bound on some JVMs but code shouldn't rely on that",
+      'Applies to Byte, Short, Long (same -128..127), Character (0..127), and Boolean — not to Float/Double, which never cache',
+      'Autoboxing happens via valueOf(), unboxing via .intValue()/etc — both inserted invisibly by javac, and unboxing a null throws NullPointerException',
+    ],
+    interviewAngle: {
+      q: 'Why does Integer a = 100; Integer b = 100; a == b print true, but the same code with 200 prints false?',
+      a: 'Autoboxing routes through Integer.valueOf(), which returns a shared cached instance for values -128..127 and a freshly allocated object outside that range — == is comparing object identity, so it silently changes behavior at the cache boundary',
+    },
+    related: ['varargs-array-allocation', 'bytecode-basics'],
+    readMinutes: 2,
+  },
+  {
+    id: 'varargs-array-allocation',
+    title: 'Varargs: Hidden Array Allocation Per Call',
+    group: 'Language Desugaring',
+    definition: "A varargs parameter (T... args) is just sugar for a T[] parameter — every call site that doesn't already pass an array allocates a new array to hold the arguments, invisibly, on every invocation.",
+    whyItMatters: [
+      'A hot-path logging call or String.format() using varargs allocates a fresh array (and boxes any primitives) on every call — invisible in source, real in a profiler, and a legitimate reason some hot-path APIs offer non-varargs overloads',
+      'Mixing varargs with overload resolution has real gotchas: an exact-arity non-varargs overload is always preferred over the varargs one, which can silently change which method runs after a refactor',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `void log(String fmt, Object... args) { ... }
+log("x={}", x); // compiles to: log("x={}", new Object[]{x})`,
+      },
+      note: 'The array literal and any autoboxing of primitive args are both inserted by the compiler, invisibly',
+    },
+    remember: [
+      'Every varargs call site allocates unless the caller already passes an array (or, for zero args, some JITs can elide it after inlining/escape analysis)',
+      'Overload resolution phase order: exact match, then widening, then varargs last — varargs is always the least-preferred applicable overload',
+      'Passing a primitive array to an Object... parameter passes the whole array as one element, not as spread arguments — a classic gotcha with int[] vs Integer...',
+    ],
+    interviewAngle: {
+      q: 'Is a varargs method call free of extra allocation in Java?',
+      a: 'No — unless the caller already passes an array, every varargs call site allocates a new backing array (and boxes any primitives), which matters on a hot path even though nothing in the source looks like an allocation',
+    },
+    related: ['autoboxing-integer-cache', 'bytecode-basics'],
+    readMinutes: 2,
+  },
+  {
+    id: 'invokedynamic-lambdas',
+    title: 'invokedynamic: How Lambdas Actually Compile',
+    group: 'invokedynamic',
+    definition: "A lambda expression compiles not to an anonymous inner class but to an invokedynamic call site that, on first invocation, uses LambdaMetafactory to generate the implementing class at runtime and link the call site directly to it — anonymous-class desugaring is what Java did before Java 8, and lambdas deliberately don't use it.",
+    whyItMatters: [
+      "Explains why decompiling a class with lambdas doesn't show a generated inner class the way anonymous classes do — the implementation is synthesized at runtime by LambdaMetafactory, not baked in at compile time as a nested .class file",
+      "invokedynamic is the general mechanism (originally added for dynamic languages on the JVM) that also underpins string concatenation's indy-based StringConcatFactory since Java 9 — worth knowing it's not lambda-specific plumbing",
+    ],
+    remember: [
+      "First call to a lambda's call site is slower (bootstrap: metafactory generates and links the implementation class); subsequent calls are as fast as a direct method call",
+      "One class is generated lazily per distinct lambda expression, not per invocation — it's cached after the first bootstrap",
+      'Method references (Foo::bar) go through the exact same invokedynamic/LambdaMetafactory path as lambda expressions',
+    ],
+    interviewAngle: {
+      q: "If lambdas aren't compiled to anonymous inner classes, what does javac actually emit for one?",
+      a: "An invokedynamic instruction whose bootstrap method is LambdaMetafactory — on first invocation it synthesizes the implementing class at runtime and links the call site to it, which is why you won't find a generated .class file for a lambda the way you would for an anonymous class",
+    },
+    related: ['bytecode-basics'],
+    diagram: `flowchart LR
+  A[invokedynamic] --> B[LambdaMetafactory]
+  B --> C[Generated class]
+  C --> D[Linked call site]`,
+    readMinutes: 3,
+  },
+]
+
 export const javaConcepts: ConceptSection[] = [
   {
     id: 'java-concept-fundamentals',
@@ -4349,6 +5585,48 @@ export const javaConcepts: ConceptSection[] = [
     title: 'Modern Java (Records, Sealed, Virtual Threads)',
     intro: 'Java 14-21+ added structural features (records, sealed types, pattern matching) and a concurrency model (virtual threads) that change everyday API and threading design decisions — the gotchas here are what actually surface in production and interviews.',
     concepts: modernJavaConcepts,
+  },
+  {
+    id: 'java-concept-exceptions',
+    subtopic: 'exceptions',
+    title: 'Exception Handling',
+    intro: 'Beyond try/catch syntax: the checked-vs-unchecked design debate, resource cleanup mechanics, and the production gotchas around performance and concurrency that separate senior engineers from textbook answers.',
+    concepts: exceptionsConcepts,
+  },
+  {
+    id: 'java-concept-io-nio',
+    subtopic: 'io-nio',
+    title: 'I/O & NIO',
+    intro: 'The blocking java.io streams, the buffer/channel model of NIO, and the Path/Files API of NIO.2 — plus where virtual threads change the calculus on which of these you should reach for.',
+    concepts: ioNioConcepts,
+  },
+  {
+    id: 'java-concept-serialization',
+    subtopic: 'serialization',
+    title: 'Serialization',
+    intro: "Java's built-in object serialization is niche in modern systems but still shows up in distributed caches, session replication, and legacy RMI — and its history of remote-code-execution CVEs makes it a topic senior engineers are expected to reason about even when they've banned it.",
+    concepts: serializationConcepts,
+  },
+  {
+    id: 'java-concept-reflection',
+    subtopic: 'reflection',
+    title: 'Reflection & Annotations',
+    intro: 'Reflection lets code inspect and invoke classes, methods, and fields at runtime instead of compile time — it\'s the mechanism nearly every framework (Spring, Hibernate, Jackson, JUnit) is built on. Understanding its cost, its interaction with encapsulation and the module system, and how it differs from compile-time annotation processing is what separates "I use Spring" from "I understand how Spring works."',
+    concepts: reflectionConcepts,
+  },
+  {
+    id: 'java-concept-design-patterns',
+    subtopic: 'design-patterns',
+    title: 'Design Patterns',
+    intro: "Classic GoF and enterprise patterns as they actually show up in Java codebases, with an emphasis on when each one earns its complexity versus when it's over-engineering.",
+    concepts: designPatternsConcepts,
+  },
+  {
+    id: 'java-concept-advanced-internals',
+    subtopic: 'advanced-internals',
+    title: 'Java Internals — Advanced',
+    intro: 'The deepest layer: what javac and the JIT actually produce, and the language tricks (autoboxing, varargs, invokedynamic) whose bytecode reality differs from their source-level appearance.',
+    concepts: advancedInternalsConcepts,
   },
 ]
 
