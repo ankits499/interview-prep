@@ -3933,6 +3933,317 @@ const productionConcepts: ConceptCard[] = [
   },
 ]
 
+const modernJavaConcepts: ConceptCard[] = [
+  {
+    id: 'record-canonical-compact-constructor',
+    title: 'Canonical vs Compact Constructor',
+    group: 'Records',
+    definition: 'Every record gets an auto-generated canonical constructor assigning each component; a compact constructor (no parameter list) lets you validate or normalize arguments before that implicit assignment runs.',
+    whyItMatters: [
+      'Compact constructors are the only sanctioned place to enforce invariants (null checks, defensive copies) without duplicating the field list',
+      "You cannot reassign a component to a different value inside a compact constructor's body in a way that skips the implicit assignment — the parameter name IS the field, assignment to it just feeds the generated assignment",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `record Range(int lo, int hi) {
+    Range {
+        if (lo > hi) throw new IllegalArgumentException("lo > hi");
+    }
+}`,
+      },
+      note: "No explicit field assignments appear in the body — the compiler still emits this.lo = lo; this.hi = hi; after the compact constructor's code runs.",
+    },
+    remember: [
+      'Compact constructor: no parens, no explicit field assignment — validate/normalize the parameters, compiler assigns fields after',
+      'Declaring a full canonical constructor (with parameter list) suppresses the compact form and requires you to assign every field yourself',
+      'You can still add other overloaded constructors, but they must ultimately delegate to the canonical one',
+    ],
+    interviewAngle: {
+      q: "Why can't you reject a bad argument by just not assigning it in a compact constructor?",
+      a: 'The implicit field assignment always runs after the compact constructor body — the only way to reject bad input is to throw, not to skip an assignment.',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'record-shallow-immutability',
+    title: 'Records Are Only Shallowly Immutable',
+    group: 'Records',
+    definition: "A record's components are final and can't be reassigned, but if a component holds a mutable object (array, List, Date), the referenced object's contents can still be mutated from outside.",
+    whyItMatters: [
+      'Common production bug: a record wrapping an int[] or a mutable List looks immutable but leaks a mutable reference through its accessor',
+      "equals()/hashCode() are generated from the component values at the time of comparison — mutating a held collection after construction silently changes a record's equality/hash behavior",
+    ],
+    remember: [
+      'Defensive-copy mutable components in a compact constructor, and return unmodifiable views from custom accessors if you override them',
+      'Arrays as record components are a double trap: auto-generated equals()/hashCode() use reference identity for arrays, not Arrays.equals()/deepEquals()',
+    ],
+    related: ['record-canonical-compact-constructor'],
+    readMinutes: 2,
+  },
+  {
+    id: 'record-structural-contract',
+    title: 'Records as a Structural (Not Inheritance) Tool',
+    group: 'Records',
+    definition: "Records can implement interfaces but can never extend a class or be extended themselves — they're a final, transparent carrier for data, not a base for behavior hierarchies.",
+    whyItMatters: [
+      "Forces a design choice: model shared behavior via interfaces + default methods, not via a record base class, since that option doesn't exist",
+      "Being implicitly final means you can't mock a record with a subclassing-based mocking approach — tests need to construct real instances or mock the interface it implements",
+    ],
+    remember: [
+      'Implicitly final and implicitly extends Record (so it inherits equals/hashCode/toString from there, not Object)',
+      'Static fields and static methods are allowed on a record, instance fields beyond the components are not',
+    ],
+    readMinutes: 1,
+  },
+  {
+    id: 'sealed-exhaustive-switch',
+    title: 'Sealed Types + Exhaustive Switch',
+    group: 'Sealed & Pattern Matching',
+    definition: 'A sealed interface or class declares its complete, closed set of permitted subtypes via `permits`, letting a pattern-matching switch over it omit `default` when every permitted case is covered.',
+    whyItMatters: [
+      "The compiler rejects the switch at compile time if a new subtype is added and the switch isn't updated — turns a runtime bug (missed case) into a build failure",
+      'This is the main practical payoff over a plain enum or abstract class: closed-world modeling with compiler-checked coverage, useful for modeling API results, AST nodes, or state machines',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `sealed interface Shape permits Circle, Square {}
+record Circle(double r) implements Shape {}
+record Square(double side) implements Shape {}
+
+double area(Shape s) {
+    return switch (s) {
+        case Circle c -> Math.PI * c.r() * c.r();
+        case Square sq -> sq.side() * sq.side();
+    };
+}`,
+      },
+    },
+    remember: [
+      'permits list can be omitted if all permitted subtypes are nested in the same file — compiler infers it',
+      'Every permitted subtype must itself be sealed, final, or non-sealed — non-sealed reopens the hierarchy for unrestricted extension',
+      'Exhaustiveness checking only kicks in for switch expressions/statements using pattern matching over the sealed type, not for plain switch on an enum-like discriminator field',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'sealed-non-sealed-escape-hatch',
+    title: 'The non-sealed Escape Hatch',
+    group: 'Sealed & Pattern Matching',
+    definition: 'A permitted subtype can be declared non-sealed to deliberately reopen that one branch of the hierarchy to arbitrary further extension, breaking the closed-world guarantee for just that branch.',
+    whyItMatters: [
+      "Once any permitted type is non-sealed, exhaustive switches over the root sealed type lose their compile-time completeness guarantee for that branch — new subclasses of the non-sealed type won't be caught",
+      'Common library-design tension: you want closed control at the top but need one extension point for consumers — non-sealed is the sanctioned way to say that explicitly rather than leaving the whole hierarchy open',
+    ],
+    remember: [
+      'Each permitted subtype must pick exactly one of: final, sealed (with its own permits), or non-sealed',
+    ],
+    related: ['sealed-exhaustive-switch'],
+    readMinutes: 1,
+  },
+  {
+    id: 'pattern-matching-instanceof',
+    title: 'Pattern Matching for instanceof',
+    group: 'Sealed & Pattern Matching',
+    definition: '`if (obj instanceof String s)` tests the type and binds a scoped variable in one step, eliminating the separate explicit cast.',
+    whyItMatters: [
+      "The bound variable's scope follows normal flow analysis — it's usable after a negated check that returns/throws (`if (!(obj instanceof String s)) return; use(s);`), which surprises people expecting block-only scope",
+    ],
+    remember: [
+      'Flow scoping, not block scoping — the pattern variable is definitely assigned wherever the compiler can prove the instanceof was true',
+      'Combines with `&&` in the same condition: `if (obj instanceof String s && !s.isEmpty())`',
+    ],
+    readMinutes: 1,
+  },
+  {
+    id: 'record-deconstruction-patterns',
+    title: 'Record Patterns (Deconstruction) in switch',
+    group: 'Sealed & Pattern Matching',
+    definition: 'A record pattern like `case Point(int x, int y)` both matches the type and destructures its components into new bindings in a single case label, and these can nest arbitrarily deep.',
+    whyItMatters: [
+      'Nested deconstruction (`case Line(Point(var x1, var y1), Point(var x2, var y2))`) replaces chains of manual accessor calls and casts when working with algebraic data modeled as nested records',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `sealed interface Shape permits Circle, Rect {}
+record Point(int x, int y) {}
+record Circle(Point center, int r) implements Shape {}
+
+String describe(Shape s) {
+    return switch (s) {
+        case Circle(Point(var x, var y), var r) when r > 100 -> "big circle";
+        case Circle c -> "circle";
+        default -> "other";
+    };
+}`,
+      },
+      note: 'The `when` clause is a guard — it only applies after the type/shape pattern already matched, and does not itself count toward exhaustiveness.',
+    },
+    remember: [
+      "A guard (`when`) makes an otherwise-exhaustive switch potentially non-exhaustive again, since the compiler can't prove the guard's boolean covers all remaining cases",
+      "`var` inside a nested pattern infers the component's declared type",
+    ],
+    related: ['sealed-exhaustive-switch'],
+    readMinutes: 2,
+  },
+  {
+    id: 'switch-null-case',
+    title: 'case null in switch (Java 21)',
+    group: 'Sealed & Pattern Matching',
+    definition: 'A pattern-matching switch can include an explicit `case null` label, letting one switch handle both the null case and typed cases instead of requiring a separate null check beforehand.',
+    whyItMatters: [
+      'Before this, switching on a reference type threw NullPointerException on a null subject with no way to handle it inside the switch itself',
+      'case null can be combined with default via `case null, default ->` to route null the same way as the fallback case',
+    ],
+    remember: [
+      'A traditional (non-pattern) switch on a reference type still throws NPE on null — this only applies to switches using type patterns',
+      'Without an explicit `case null`, a pattern-matching switch still throws NPE on a null subject',
+    ],
+    readMinutes: 1,
+  },
+  {
+    id: 'virtual-threads-model',
+    title: 'Virtual Threads: What They Actually Change',
+    group: 'Virtual Threads',
+    definition: 'Virtual threads are cheap, JVM-scheduled threads multiplexed M:N onto a small pool of OS-backed carrier threads, unmounting the carrier whenever the virtual thread blocks on supported blocking I/O.',
+    whyItMatters: [
+      'The payoff is specifically for thread-per-request-style blocking I/O code — you keep the simple synchronous programming model but stop paying one-OS-thread-per-request in memory/context-switch cost',
+      "They give zero benefit for CPU-bound work — a virtual thread doing pure computation ties up its carrier thread exactly like a platform thread would, so a CPU-bound service doesn't get faster by switching to virtual threads",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+    executor.submit(() -> callBlockingService());
+}`,
+      },
+    },
+    remember: [
+      'Virtual threads are daemon threads by default and are never reused/pooled — creating millions is intended and cheap',
+      "The carrier pool defaults to a size equal to available processors, similar to ForkJoinPool's common pool sizing",
+    ],
+    diagram: `flowchart LR
+  A[Virtual Thread] -->|mounted on| B[Carrier Thread]
+  B -->|blocks on IO| C[Unmount]
+  C -->|carrier freed| D[Runs Other Virtual Thread]`,
+    readMinutes: 2,
+  },
+  {
+    id: 'virtual-thread-pinning',
+    title: "Pinning: When a Virtual Thread Can't Unmount",
+    group: 'Virtual Threads',
+    definition: "A virtual thread stays pinned to its carrier thread instead of unmounting on block if it's inside a `synchronized` block/method or executing certain native/JNI frames — during a pin, the carrier is unavailable to run any other virtual thread.",
+    whyItMatters: [
+      'Widespread synchronized-guarded blocking I/O (a common legacy pattern) can silently degrade virtual thread throughput back toward platform-thread-like scaling limits since carriers get starved',
+      'As of JDK 21, `synchronized` pins; `ReentrantLock` does not — swapping legacy synchronized blocks for ReentrantLock around blocking calls is a real, recommended migration step, not a style preference',
+    ],
+    remember: [
+      'Enable `-Djdk.tracePinnedThreads=full` (or short) to log pinning events during development to find hotspots',
+      "A pin isn't a deadlock or an error — it's a scalability cliff that only shows up under load, making it easy to miss in testing",
+    ],
+    related: ['virtual-threads-model'],
+    readMinutes: 2,
+  },
+  {
+    id: 'virtual-threads-dont-pool',
+    title: 'Never Pool Virtual Threads',
+    group: 'Virtual Threads',
+    definition: 'Thread pools exist to amortize the expensive cost of OS thread creation across reused workers — virtual threads are already cheap to create and discard, so pooling them adds overhead and reintroduces the fixed-capacity bottleneck Loom was meant to remove.',
+    whyItMatters: [
+      "A bounded ExecutorService of virtual threads defeats the point: you've capped concurrency artificially and added queueing delay for no reuse benefit",
+      'Correct pattern is one virtual thread per task via newVirtualThreadPerTaskExecutor, with backpressure applied at a different layer (e.g. a semaphore, or limiting an upstream connection pool) rather than via thread pool sizing',
+    ],
+    remember: [
+      'If you need to cap concurrent downstream calls, gate with a Semaphore or a bounded resource (DB connection pool), not by pooling the virtual threads themselves',
+    ],
+    related: ['virtual-threads-model'],
+    readMinutes: 1,
+  },
+  {
+    id: 'virtual-threads-threadlocal-caution',
+    title: 'ThreadLocal Cost Under Millions of Virtual Threads',
+    group: 'Virtual Threads',
+    definition: "ThreadLocal still works correctly on virtual threads, but a ThreadLocal that's expensive to populate (e.g. a pooled buffer, a per-thread connection) becomes a liability when threads number in the millions instead of dozens.",
+    whyItMatters: [
+      'A common platform-thread idiom — cache an expensive object per-thread to avoid reallocation — assumes a small, stable thread count; that assumption breaks when a service spins up a fresh virtual thread per request',
+      "ScopedValue (introduced alongside virtual threads) is the recommended alternative for passing immutable per-task context down a call stack without ThreadLocal's mutability and per-thread-instance cost",
+    ],
+    remember: [
+      "ThreadLocal isn't banned with virtual threads — it's specifically the pattern of using it as an expensive-object cache that stops making sense",
+    ],
+    readMinutes: 1,
+  },
+  {
+    id: 'structured-concurrency',
+    title: 'Structured Concurrency (Preview)',
+    group: 'Virtual Threads',
+    definition: "StructuredTaskScope groups a set of related subtasks (often virtual threads) so they share a lifetime — if one fails, siblings are cancelled, and the scope doesn't exit until all subtasks have completed or been cancelled.",
+    whyItMatters: [
+      'Fixes the classic ExecutorService.submit() fire-and-forget failure mode where a fork gets leaked (a task keeps running after its caller returned or failed) — structured concurrency makes the parent-child task relationship explicit and enforced',
+      'Still a preview/incubating API as of JDK 21 — expect API shape to keep changing across releases before finalization',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+    var user = scope.fork(() -> fetchUser());
+    var orders = scope.fork(() -> fetchOrders());
+    scope.join().throwIfFailed();
+    return render(user.get(), orders.get());
+}`,
+      },
+    },
+    remember: [
+      'Cancellation propagates: if one forked subtask throws, ShutdownOnFailure cancels the others rather than letting them run to completion unattended',
+      "The try-with-resources block enforces the structuring — the scope can't be exited while children are still outstanding",
+    ],
+    related: ['virtual-threads-model'],
+    readMinutes: 2,
+  },
+  {
+    id: 'text-block-whitespace',
+    title: 'Text Block Incidental Whitespace Stripping',
+    group: 'Syntax',
+    definition: 'A text block\'s leading whitespace is stripped based on the least-indented line (including the closing delimiter\'s position), which can silently change content if the closing `"""` is indented differently than intended.',
+    whyItMatters: [
+      "Moving the closing triple-quote left or right re-derives the common indentation baseline for every line — an accidental reformat/auto-indent from an IDE can quietly alter the literal string's leading spaces",
+      'Trailing whitespace on each line is stripped by default too; `\\s` at line-end is the escape to preserve an intentional trailing space',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `String json = """
+    {
+      "key": "value"
+    }
+    """;`,
+      },
+      note: "The indentation of the closing delimiter's line sets the stripped margin for every content line above it.",
+    },
+    remember: [
+      '`\\` at end of line suppresses the implicit newline (line continuation), `\\s` preserves a trailing space that would otherwise be stripped',
+    ],
+    readMinutes: 1,
+  },
+  {
+    id: 'var-inference-gotchas',
+    title: 'var Inference Gotchas',
+    group: 'Syntax',
+    definition: "`var` infers the most specific static type of the initializer expression at compile time — it's still fully statically typed, but that inferred type can be narrower or more implementation-specific than the type you'd have declared explicitly.",
+    whyItMatters: [
+      "`var list = new ArrayList<String>();` infers ArrayList<String>, not List<String> — code depending on `list` staying an interface-typed reference (e.g. later reassignment to a different List implementation) won't compile",
+      "`var` cannot be used for fields, method parameters, lambda parameters without an explicit target type, or when the initializer is `null` or a bare `{}` array initializer, since there's no expression to infer from",
+    ],
+    remember: [
+      "var with a diamond generic on an anonymous class actually captures the anonymous subtype, exposing any extra members it declares — a rare case where var infers a type you can't even name explicitly",
+      'Style guidance: var trades away the declared-type-as-documentation signal, so it reads best when the right-hand side already makes the type obvious',
+    ],
+    readMinutes: 1,
+  },
+]
+
 export const javaConcepts: ConceptSection[] = [
   {
     id: 'java-concept-fundamentals',
@@ -4031,6 +4342,13 @@ export const javaConcepts: ConceptSection[] = [
     title: 'Production Java',
     intro: 'Running a JVM service in production is a different skill from knowing the language internals — the operational side: what to observe, how to shut down and diagnose safely, and the incident patterns that repeatedly page Java teams on-call.',
     concepts: productionConcepts,
+  },
+  {
+    id: 'java-concept-modern-java',
+    subtopic: 'modern-java',
+    title: 'Modern Java (Records, Sealed, Virtual Threads)',
+    intro: 'Java 14-21+ added structural features (records, sealed types, pattern matching) and a concurrency model (virtual threads) that change everyday API and threading design decisions — the gotchas here are what actually surface in production and interviews.',
+    concepts: modernJavaConcepts,
   },
 ]
 

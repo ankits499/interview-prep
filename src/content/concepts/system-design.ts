@@ -2205,6 +2205,483 @@ const sdCaseStudiesConcepts: ConceptCard[] = [
   },
 ]
 
+const sdSecurityConcepts: ConceptCard[] = [
+  {
+    id: 'authn-vs-authz-distributed',
+    title: 'AuthN vs AuthZ Across Service Boundaries',
+    group: 'Foundations',
+    definition: 'Authentication proves who a caller is once, typically at the edge; authorization decides what that identity can do, and in a microservices system that decision has to be re-evaluated at every hop, not just the first one.',
+    whyItMatters: [
+      'A gateway that authenticates at the edge but lets internal services trust every request unconditionally turns one compromised service into full authorization bypass for the whole system',
+    ],
+    remember: [
+      'AuthN answers identity; AuthZ answers permission — conflating them leads to systems that check "is this token valid" and skip "is this identity allowed to do this specific thing"',
+      "In distributed systems, authorization is a per-hop concern: each service should still enforce its own authz rules even if it trusts the caller's identity",
+    ],
+    readMinutes: 2,
+    related: ['api-gateway-auth-enforcement', 'zero-trust-service-auth'],
+  },
+  {
+    id: 'session-vs-token-auth-scale',
+    title: 'Session-Based vs Token-Based Auth at Scale',
+    group: 'Foundations',
+    definition: 'Session-based auth keeps state server-side (a session store every instance must check), while token-based auth (e.g. JWT) pushes claims into a signed, self-contained token that any service can verify without a shared store.',
+    whyItMatters: [
+      'Sessions need sticky routing or a shared/replicated session store — both add infrastructure and a single point of contention as instance count grows',
+      'Tokens scale horizontally with no shared state, but trade that for the revocation problem: a token is valid until it expires, whether or not you still want it to be',
+    ],
+    remember: [
+      'Sessions: easy to revoke instantly (delete server-side record), harder to scale statelessly',
+      'Tokens: trivial to scale statelessly, hard to revoke before expiry without reintroducing a lookup',
+    ],
+    readMinutes: 2,
+    related: ['jwt-revocation-problem'],
+  },
+  {
+    id: 'api-gateway-auth-enforcement',
+    title: 'API Gateway as the Auth Enforcement Point',
+    group: 'Perimeter & Enforcement',
+    definition: "In a microservices architecture the gateway is usually the single place that terminates external authentication and injects a verified identity downstream, so individual services don't each reimplement credential checking.",
+    whyItMatters: [
+      "Centralizing authn at the gateway avoids N services each parsing raw credentials, but it also means the gateway is a high-value target and a single point of failure for the whole system's security posture",
+      "Downstream services still need to authorize — trusting a gateway-injected identity header is only safe if the network path from gateway to service can't be spoofed (which is why that path itself needs mTLS or a service mesh, not implicit trust)",
+    ],
+    remember: [
+      'Gateway does authentication + coarse routing/rate limiting; individual services do fine-grained authorization for their own resources',
+      "A gateway-injected identity header (e.g. X-User-Id) is only trustworthy if internal traffic can't bypass the gateway or spoof that header directly",
+    ],
+    readMinutes: 2,
+    related: ['zero-trust-service-auth', 'rate-limiting-for-security'],
+  },
+  {
+    id: 'oauth2-grant-types-systems',
+    title: 'OAuth2 Grant Types — Which Trust Model Fits',
+    group: 'Federated & Delegated Auth',
+    definition: 'OAuth2 is an authorization delegation framework with different grant types for different trust relationships: authorization code (a user delegating to a third-party app), client credentials (service-to-service, no user involved), and refresh tokens (extending a session without re-prompting the user).',
+    whyItMatters: [
+      "Picking the wrong grant type is a common design mistake — using client credentials for a user-facing flow loses the user's consent and identity context; using authorization code for pure service-to-service calls adds unnecessary browser-redirect machinery",
+    ],
+    remember: [
+      'Authorization code (+ PKCE) is for user-delegated access from a client app to a resource server',
+      "Client credentials is for machine-to-machine calls where there's no human resource owner",
+      'OAuth2 alone only proves "this token can call this API with these scopes" — it says nothing about who the human is, which is what OIDC adds',
+    ],
+    readMinutes: 2,
+    related: ['oidc-vs-oauth2', 'scoped-service-tokens'],
+  },
+  {
+    id: 'oidc-vs-oauth2',
+    title: 'OIDC vs OAuth2 — Identity vs Authorization',
+    group: 'Federated & Delegated Auth',
+    definition: 'OAuth2 is a framework for delegated authorization (issuing an access token that grants API access); OpenID Connect is a thin identity layer on top of it that adds a signed ID token proving who the user is.',
+    whyItMatters: [
+      'A system that uses a bare OAuth2 access token to identify a user is misusing the protocol — access tokens are opaque-by-design to the client and can change format; the ID token is the one meant to be parsed for identity claims',
+    ],
+    remember: [
+      'Access token = "what this bearer can call"; ID token = "who this user is", issued once at login and verified via signature',
+      'OIDC adds a standard discovery/userinfo contract on top of OAuth2, which is what lets "Sign in with X" federate across unrelated systems',
+    ],
+    readMinutes: 2,
+    related: ['oauth2-grant-types-systems'],
+  },
+  {
+    id: 'jwt-revocation-problem',
+    title: 'The JWT Revocation Problem',
+    group: 'Federated & Delegated Auth',
+    definition: 'A signed, stateless JWT is valid to every verifier until it expires — there is no built-in way to invalidate one early without reintroducing the shared state JWTs were meant to avoid.',
+    whyItMatters: [
+      '"Log out" or "revoke this user\'s access now" (compromised account, fired employee) can\'t be done purely client-side or by deleting a server record — the token itself is still cryptographically valid everywhere until it expires',
+    ],
+    remember: [
+      "Common mitigations: short-lived access tokens (minutes) paired with a revocable refresh token, or a denylist/introspection check reintroducing a lookup — there's no free lunch, only a tradeoff between statelessness and revocability",
+      'The shorter the token TTL, the smaller the blast radius of a leaked or stolen token, at the cost of more frequent refresh round-trips',
+    ],
+    readMinutes: 2,
+    related: ['session-vs-token-auth-scale', 'token-introspection-vs-local-validation'],
+  },
+  {
+    id: 'token-introspection-vs-local-validation',
+    title: 'Token Introspection vs Local JWT Validation',
+    group: 'Federated & Delegated Auth',
+    definition: 'A service can verify a JWT locally using a cached public key (fast, no network call) or call back to the auth server to introspect an opaque token (slower, but reflects revocation and permission changes immediately).',
+    whyItMatters: [
+      'Local validation is fast and scales without hammering the auth server, but a service keeps honoring a token the auth server has since revoked until that token naturally expires — introspection trades latency and an extra dependency for real-time correctness',
+    ],
+    remember: [
+      'Local validation: fast, stale-tolerant, scales horizontally with no extra hop',
+      "Introspection: always current, but adds a network round-trip per request and makes the auth server a dependency on every call's critical path",
+    ],
+    readMinutes: 2,
+    related: ['jwt-revocation-problem'],
+  },
+  {
+    id: 'rate-limiting-for-security',
+    title: 'Rate Limiting as a Security Control',
+    group: 'Perimeter & Enforcement',
+    definition: 'Beyond protecting downstream capacity, rate limiting keyed on identity (per-user, per-API-key, per-IP) is a primary defense against credential stuffing, brute-force login attempts, and enumeration attacks.',
+    whyItMatters: [
+      'A limiter that only throttles by raw request volume misses a slow, distributed credential-stuffing attack spread across many IPs — security-focused limiting needs to key on account/credential identity, not just source address',
+      'Failed-auth attempts often need a tighter, separate limit than general traffic (e.g. lock an account after N bad logins) rather than sharing a bucket with normal read traffic',
+    ],
+    remember: [
+      "Load-shedding rate limits protect capacity; security rate limits protect against abuse of a specific identity/credential — they're tuned differently and often live at different layers (gateway vs auth service)",
+    ],
+    readMinutes: 2,
+    related: ['api-gateway-auth-enforcement'],
+  },
+  {
+    id: 'zero-trust-service-auth',
+    title: 'Zero Trust for Service-to-Service Calls',
+    group: 'Service-to-Service Security',
+    definition: 'Zero trust assumes no request is implicitly trusted because of where it originates — every service-to-service call authenticates and is authorized on its own merits, even inside a "private" internal network.',
+    whyItMatters: [
+      'The classic "hard shell, soft center" model (perimeter firewall, unauthenticated internal traffic) means one compromised pod or leaked internal credential gives an attacker lateral movement across every service that trusted network location alone',
+    ],
+    remember: [
+      'Zero trust != no trust — it means trust is established per-request via verifiable identity (mTLS cert, signed token), not inferred from being on the internal network',
+      'This is a principle, not a single product — mTLS and a service mesh are common mechanisms that implement it',
+    ],
+    readMinutes: 2,
+    related: ['mtls-service-mesh', 'defense-in-depth'],
+  },
+  {
+    id: 'mtls-service-mesh',
+    title: 'mTLS and Service Mesh for Service-to-Service Auth',
+    group: 'Service-to-Service Security',
+    definition: 'Mutual TLS has both sides of a connection present and verify certificates, giving cryptographic service identity; a service mesh (e.g. sidecar proxies) can enforce mTLS and authorization policy uniformly without every service implementing it itself.',
+    whyItMatters: [
+      "Pushing mTLS and authz policy into a mesh sidecar means application code never handles certificates or TLS termination — services get identity and encryption in transit for free, and policy changes don't require redeploying every service",
+      "The tradeoff is operational: a mesh adds a sidecar hop's latency to every call and a new control plane to operate and secure",
+    ],
+    remember: [
+      'mTLS gives you "which service is calling" (identity); it does not by itself give you "is this service allowed to call this endpoint" (authorization) — that\'s a separate policy layer on top',
+      'Certificate rotation at scale is the operational cost most teams underestimate when adopting mTLS',
+    ],
+    readMinutes: 2,
+    diagram: `flowchart LR
+  A[Service A] -->|mTLS cert| P[Sidecar Proxy]
+  P -->|verified| Q[Sidecar Proxy]
+  Q --> B[Service B]`,
+    related: ['zero-trust-service-auth', 'scoped-service-tokens'],
+  },
+  {
+    id: 'defense-in-depth',
+    title: 'Defense in Depth',
+    group: 'Service-to-Service Security',
+    definition: "No single control is assumed to hold — security is layered (network segmentation, gateway auth, service-level authz, encryption, secrets management) so that one layer failing doesn't expose the whole system.",
+    whyItMatters: [
+      'Relying on the gateway alone ("internal traffic is safe because it\'s behind the gateway") means a single misconfiguration or a bypassed perimeter compromises everything downstream at once',
+    ],
+    remember: [
+      'The test for a design: if this one control were removed or bypassed, what\'s the actual blast radius? Defense in depth means the answer is never "everything"',
+    ],
+    readMinutes: 1,
+    related: ['zero-trust-service-auth'],
+  },
+  {
+    id: 'scoped-service-tokens',
+    title: 'Least Privilege via Scoped Tokens',
+    group: 'Service-to-Service Security',
+    definition: 'A service-to-service token should carry the narrowest set of scopes/permissions needed for that specific call, not a broad token reused across every downstream interaction.',
+    whyItMatters: [
+      'A single broad, long-lived service credential shared across many call paths means a leak from any one of them grants an attacker everything that credential could do — narrow, purpose-specific tokens shrink blast radius the same way network segmentation does',
+    ],
+    remember: [
+      'Ask "what\'s the blast radius if this specific token leaks" when deciding scope — the answer should be small and specific, not "the whole platform"',
+    ],
+    readMinutes: 1,
+    related: ['mtls-service-mesh', 'secrets-management-vault'],
+  },
+  {
+    id: 'secrets-management-vault',
+    title: "Why Hardcoded/Env-Var Secrets Don't Scale",
+    group: 'Secrets & Data Exposure',
+    definition: 'Secrets baked into config files, environment variables, or images are static, rarely rotated, and visible to anyone with deploy or shell access — a dedicated secrets manager (e.g. Vault-style) issues short-lived, auditable, dynamically-generated credentials instead.',
+    whyItMatters: [
+      "A hardcoded DB password has to be manually rotated everywhere it's used simultaneously, is often committed to source control by accident, and gives no audit trail of which service or person accessed it and when",
+      'Dynamic secrets (a database credential minted on demand, leased for a short TTL, auto-revoked) shrink the exposure window from "until someone remembers to rotate it" to minutes or hours, and every issuance is logged',
+    ],
+    remember: [
+      'The core shift is from "a secret that\'s true forever" to "a secret that\'s true for a lease, tied to an identity, and revocable"',
+      "Env vars are still visible via process inspection, crash dumps, and CI logs — a vault reduces where the secret's plaintext ever has to live",
+    ],
+    readMinutes: 2,
+    related: ['scoped-service-tokens'],
+  },
+  {
+    id: 'ssrf-internal-calls',
+    title: 'SSRF via Internal Service Calls',
+    group: 'Secrets & Data Exposure',
+    definition: 'Server-side request forgery in a microservices context happens when a service accepts a user-influenced URL or identifier and uses it to make an outbound call, letting an attacker redirect that call to internal-only services (metadata endpoints, admin APIs) the user could never reach directly.',
+    whyItMatters: [
+      'Cloud metadata endpoints (e.g. the instance-metadata IP many providers use) are a classic SSRF target — a service that fetches "a user-supplied image URL" without validating the target can be tricked into leaking instance credentials from that endpoint',
+      'This is a distributed-systems-specific risk because internal services often skip auth checks entirely on the assumption that only trusted internal callers can reach them — SSRF breaks that assumption by using a trusted service as the caller',
+    ],
+    remember: [
+      'Mitigate with an allowlist of permitted outbound destinations, blocking link-local/metadata IP ranges, and — per zero trust — not assuming an internal call is safe just because it originated inside the network',
+    ],
+    readMinutes: 2,
+    related: ['zero-trust-service-auth', 'idor-across-services'],
+  },
+  {
+    id: 'idor-across-services',
+    title: 'Insecure Direct Object References Across Services',
+    group: 'Secrets & Data Exposure',
+    definition: 'IDOR happens when a service returns or acts on an object referenced by an ID without checking that the caller is actually authorized for that specific object — in a microservices system this gets worse because the authorization check can silently happen in one service and be assumed (incorrectly) by another.',
+    whyItMatters: [
+      'A common distributed-systems variant: service A checks "does this user own order 123" and calls service B with just the order id; service B trusts it\'s already been authorized and serves the record to whoever asks — if any other caller reaches service B directly, the check is bypassed entirely',
+      'Object-level authorization has to be enforced at the service that owns the data, not assumed from an upstream caller, or it becomes a single point of authorization failure',
+    ],
+    remember: [
+      '"Is this token valid" != "is this identity allowed to access this specific object" — IDOR is exactly the gap between those two checks',
+    ],
+    readMinutes: 2,
+    related: ['authn-vs-authz-distributed', 'ssrf-internal-calls'],
+  },
+]
+
+const sdObservabilityConcepts: ConceptCard[] = [
+  {
+    id: 'three-pillars-tradeoffs',
+    title: 'Metrics vs Logs vs Traces',
+    group: 'The Three Pillars',
+    definition: 'Metrics answer "is something wrong right now" cheaply at aggregate scale, logs answer "what exactly happened on this one request/instance" at high detail but high cost, and traces answer "where in a multi-service call chain did the time or failure happen."',
+    whyItMatters: [
+      "Each pillar has a cost curve: metrics are cheap to store at high cardinality-free volume, logs get expensive fast if you log everything at full detail, traces are expensive to collect exhaustively so they're usually sampled",
+      'A common senior mistake is trying to debug latency purely from logs (no causal chain across services) or trying to alert purely from traces (too sparse/sampled to trust for paging)',
+    ],
+    remember: [
+      'Metrics: numeric, aggregable, cheap, good for alerting and trends, bad for "why"',
+      'Logs: rich, per-event detail, expensive at scale, good for root-cause once you know where to look',
+      'Traces: causal chain across service boundaries, good for "which hop was slow", sampled so not exhaustive',
+    ],
+    interviewAngle: {
+      q: "You have a metric showing p99 latency spiked. What's your next step and why not go straight to logs?",
+      a: "Pull a trace for a slow request first — it tells you *which service* in the chain owns the latency before you go spelunking through logs for a specific instance, saving you from grepping the wrong service's logs.",
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'structured-logging',
+    title: 'Structured vs Unstructured Logging',
+    group: 'The Three Pillars',
+    definition: 'Structured logs emit key-value/JSON records that a machine can index and query directly, instead of free-text lines that require regex parsing to extract fields.',
+    whyItMatters: [
+      'At scale, log aggregation systems index structured fields for fast filtering (service=X AND status=500) — unstructured text forces full-text search or brittle regex parsing across billions of lines',
+      'Structured logging also makes it trivial to attach the trace/correlation ID as a first-class field, which is what actually links logs to traces',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: 'log.info("order_placed", kv("orderId", id), kv("userId", userId), kv("amountCents", amount));',
+      },
+      note: "The point isn't the logging library — it's that orderId and userId become independently queryable fields, not substrings buried in a sentence.",
+    },
+    remember: [
+      'Free-text log messages should stay human-readable but the *fields* that matter for querying must be structured, not embedded in the message string',
+    ],
+    readMinutes: 1,
+  },
+  {
+    id: 'log-aggregation-at-scale',
+    title: 'Centralized Log Aggregation',
+    group: 'The Three Pillars',
+    definition: 'Logs are shipped off each instance to a central store (e.g. Elasticsearch, Loki) because manually SSHing into individual hosts to grep stops being viable once instances are ephemeral or number in the dozens.',
+    whyItMatters: [
+      'Autoscaled/containerized instances can disappear before you SSH in — their logs only survive if something already shipped them off-box',
+      "Centralization lets you correlate one request's logs across every service it touched, which per-host grepping can't do at all",
+    ],
+    remember: [
+      'The real cost driver is indexing, not storage — every field you index for fast search costs money and write throughput, so teams selectively index (e.g. trace ID, status code) and leave the rest as searchable-but-slower raw text',
+      "Log volume at scale forces sampling or tiered retention (hot index for recent data, cheap cold storage for old) — keeping everything indexed forever isn't economical",
+    ],
+    readMinutes: 2,
+    related: ['structured-logging', 'three-pillars-tradeoffs'],
+  },
+  {
+    id: 'trace-context-propagation',
+    title: 'Trace Context Propagation',
+    group: 'Distributed Tracing',
+    definition: "A trace ID (and the current span ID as its parent) is generated at the edge of a request and passed forward through every hop — HTTP headers, gRPC metadata, message headers — so every service's logs and spans for that one request can be tied back together.",
+    whyItMatters: [
+      'Without a propagated ID, correlating "this one user\'s slow checkout" across five services means guessing timestamps and hoping they line up',
+      'The W3C Trace Context standard (traceparent header) replaced a fragmented set of vendor-specific formats (B3, X-Ray) so tracing vendors could interoperate across a polyglot service mesh',
+    ],
+    remember: [
+      'The trace ID stays constant across the whole request; the span ID changes at every hop and each new span records its parent span ID',
+      "If any service in the chain doesn't forward the incoming header, the trace fragments into disconnected pieces from that point on",
+    ],
+    diagram: `flowchart LR
+  A[Edge Gateway] -->|trace id x| B[Order Service]
+  B -->|trace id x| C[Payment Service]
+  C -->|trace id x| D[Inventory Service]`,
+    readMinutes: 2,
+    related: ['async-boundary-propagation', 'spans-and-parentage'],
+  },
+  {
+    id: 'spans-and-parentage',
+    title: 'Spans and Parent-Child Relationships',
+    group: 'Distributed Tracing',
+    definition: "A span is one timed unit of work (e.g. one service handling one request, or one DB call within it) with a start/end time, tags, and a reference to its parent span, and the whole tree of spans sharing a trace ID reconstructs the request's causal path.",
+    whyItMatters: [
+      'The parent-child structure is what lets a trace viewer render a waterfall/flame graph showing which child call — not just which service — ate the time',
+      "Spans can also represent work *within* a service (e.g. a slow DB query span nested under the HTTP handler span) so tracing isn't only about network hops",
+    ],
+    remember: [
+      "A span's duration includes all its children's durations — a parent span looking slow can just mean a child span was slow, not that the parent's own code was",
+    ],
+    readMinutes: 1,
+    related: ['trace-context-propagation'],
+  },
+  {
+    id: 'async-boundary-propagation',
+    title: 'Context Propagation Across Async Boundaries',
+    group: 'Distributed Tracing',
+    definition: 'Trace context stored in thread-local state gets silently dropped whenever work hops to a different thread, executor, or message queue, unless something explicitly carries it across that boundary.',
+    whyItMatters: [
+      'A request handed off to a thread pool, a `CompletableFuture` callback, or a Kafka consumer on another process has no thread-local continuity — the tracing library has to manually copy context onto the new thread or into message headers',
+      'This is the single most common way traces silently fragment in production: everything looks instrumented, but async work shows up as an orphaned trace with no parent',
+    ],
+    remember: [
+      'Message queues need the trace ID written into message headers/metadata by the producer and read back by the consumer to start a new span with the right parent',
+      'Thread-pool handoffs need explicit context capture-and-restore (most tracing SDKs provide a wrapped Executor for exactly this)',
+    ],
+    readMinutes: 2,
+    related: ['trace-context-propagation'],
+  },
+  {
+    id: 'sampling-strategies',
+    title: 'Head-Based vs Tail-Based Sampling',
+    group: 'Distributed Tracing',
+    definition: 'Head-based sampling decides whether to trace a request at the very start (cheap, but might skip the interesting slow/error requests); tail-based sampling buffers all spans and decides after the fact, so it can guarantee capturing errors and outliers, at the cost of holding every span in memory somewhere until the request finishes.',
+    whyItMatters: [
+      'At high request volume, 100% tracing is too expensive to store — head-based sampling (e.g. 1% of requests) is cheap but a rare slow outlier is statistically likely to get dropped exactly when you need it most',
+      'Tail-based sampling fixes that (keep 100% of errors and slow requests, drop most fast/successful ones) but requires a collector layer that buffers spans across all services for a request before deciding, which adds latency and infrastructure cost',
+    ],
+    remember: [
+      'Head-based sampling decision must also propagate downstream — if the edge decides "don\'t trace this", every downstream service needs to honor that flag or you get partial traces',
+      "Tail-based sampling needs all of a trace's spans routed to the same collector instance/session to make a coherent keep/drop decision",
+    ],
+    readMinutes: 2,
+    related: ['trace-context-propagation'],
+  },
+  {
+    id: 'red-method',
+    title: 'RED Method',
+    group: 'Metrics & Methods',
+    definition: 'For request-driven services, track Rate (requests/sec), Errors (failed requests/sec), and Duration (latency distribution) as the baseline set of metrics per endpoint or service.',
+    whyItMatters: [
+      'It\'s a request-centric lens — good for anything that serves traffic (APIs, services) where "is this endpoint healthy" is the question',
+    ],
+    remember: [
+      'Duration should be tracked as a distribution (histogram/percentiles), never a single average — see percentiles-vs-averages',
+    ],
+    readMinutes: 1,
+    related: ['use-method', 'percentiles-vs-averages'],
+  },
+  {
+    id: 'use-method',
+    title: 'USE Method',
+    group: 'Metrics & Methods',
+    definition: 'For resources (CPU, disk, connection pools, thread pools, queues), track Utilization (busy %), Saturation (work queued waiting), and Errors — a resource-centric lens rather than a request-centric one.',
+    whyItMatters: [
+      'RED can tell you an endpoint is slow; USE tells you *why* — e.g. a DB connection pool at 100% utilization with growing saturation explains request latency that RED alone only reports as a symptom',
+    ],
+    remember: [
+      "Saturation is often the earliest warning sign — a resource can be at 70% utilization but already have a growing queue, meaning it's about to fall over under a bit more load",
+    ],
+    readMinutes: 1,
+    related: ['red-method'],
+  },
+  {
+    id: 'cardinality-explosion',
+    title: 'Metric Cardinality Explosion',
+    group: 'Metrics & Methods',
+    definition: "Every unique combination of a metric's label values creates a separate time series, so attaching a high-cardinality field (user ID, request ID, raw URL path) as a label can multiply one metric into millions of series and overwhelm the time-series database.",
+    whyItMatters: [
+      'This is the most common way teams accidentally take down or bankrupt their monitoring stack — a well-intentioned "let\'s tag latency by customer_id" turns one metric into an unbounded number of series',
+      'Unlike logs (which are fine with high-cardinality fields since each event is independent), metrics systems pre-aggregate by label combination, so cardinality directly drives memory and storage cost',
+    ],
+    remember: [
+      'Route/endpoint should be a normalized template (/users/:id) not the raw path (/users/1234) as a label, or every distinct user ID mints a new series',
+      'High-cardinality identifiers belong in logs/traces (which are per-event), not in metric labels (which are per-series)',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'percentiles-vs-averages',
+    title: 'Percentiles vs Averages for Latency',
+    group: 'Metrics & Methods',
+    definition: "Average latency is dominated by the bulk of fast requests and hides tail behavior, so a small but real slice of users hitting p99+ latency can be invisible in the average while it's very visible to them.",
+    whyItMatters: [
+      '"Average latency is fine" is compatible with 1% of users waiting 10x longer — for a high-traffic service that\'s still a large absolute number of bad experiences',
+      "You cannot average p99s across instances/services and get a meaningful number — percentiles don't compose arithmetically, so aggregate percentiles need to be computed from the underlying histogram/raw distribution, not by averaging pre-computed p99s",
+    ],
+    remember: [
+      'Track p50/p95/p99 (or better, a histogram) per endpoint, and alert on tail percentiles, not the mean',
+    ],
+    readMinutes: 1,
+    related: ['red-method'],
+  },
+  {
+    id: 'push-vs-pull-metrics',
+    title: 'Push vs Pull Metrics Collection',
+    group: 'Metrics & Methods',
+    definition: "Pull-based systems (e.g. Prometheus) have the monitoring server scrape each instance's metrics endpoint on an interval; push-based systems (e.g. StatsD) have each instance actively send metrics to a collector.",
+    whyItMatters: [
+      'Pull makes service discovery and "is this target even up" trivial (a failed scrape is itself a signal) and avoids a thundering herd of instances pushing at once, but it doesn\'t fit short-lived batch/serverless jobs that may not live long enough to be scraped',
+      'Push fits ephemeral workloads (a Lambda that pushes on exit) but loses the free "target down" signal and needs the collector to handle bursty inbound traffic',
+    ],
+    remember: [
+      "Short-lived jobs (batch, serverless) generally need push or a push-gateway intermediary, since there's no stable target for a scraper to pull from",
+    ],
+    readMinutes: 1,
+  },
+  {
+    id: 'sli-slo-error-budget',
+    title: 'SLI, SLO, SLA, and Error Budgets',
+    group: 'SLOs & Alerting',
+    definition: "An SLI is a measured indicator (e.g. % of requests under 300ms), an SLO is the internal target for that indicator (99.9% over 30 days), an SLA is the external contractual promise (usually looser than the SLO with financial penalties), and the error budget is the allowed failure margin the SLO leaves (0.1% of requests can fail/be slow before you've spent it).",
+    whyItMatters: [
+      'The error budget reframes reliability as a spendable resource instead of an unbounded goal — it gives teams a concrete, shared answer to "can we ship this risky change today" instead of an endless argument',
+    ],
+    remember: [
+      'SLO should always be stricter than the SLA — the SLA is the number you get penalized for missing, the SLO is your internal early-warning target so you never actually get there',
+    ],
+    readMinutes: 2,
+    related: ['error-budget-burn-rate'],
+  },
+  {
+    id: 'error-budget-burn-rate',
+    title: 'Error Budget Burn Rate & Paging',
+    group: 'SLOs & Alerting',
+    definition: 'Burn rate is how fast the error budget is being consumed relative to the time window — a fast burn rate (budget gone in hours) pages immediately, while a slow burn (budget gone in weeks) can wait for business hours or a ticket.',
+    whyItMatters: [
+      'Alerting directly on "SLO violated" is too late — burn-rate alerting catches the trend early enough to act, and multi-window burn-rate rules (e.g. checking both a 1-hour and 6-hour window) avoid paging on brief blips that will self-correct',
+    ],
+    remember: [
+      'This is what actually decides on-call severity in practice: fast burn = page now, slow burn = ticket for tomorrow, not-burning = no action even if a single metric looks momentarily bad',
+    ],
+    readMinutes: 2,
+    related: ['sli-slo-error-budget'],
+  },
+  {
+    id: 'alert-design',
+    title: 'Symptom-Based vs Cause-Based Alerting',
+    group: 'SLOs & Alerting',
+    definition: 'Symptom-based alerts fire on user-visible impact (elevated error rate, high latency, SLO burn) while cause-based alerts fire on an internal condition (CPU high, disk 80% full) that may or may not actually be hurting users.',
+    whyItMatters: [
+      "Cause-based alerting is the main driver of alert fatigue — a disk at 85% full that's been stable for months and never runs out doesn't need a 3am page, but teams alert on it anyway because it's easy to measure",
+      'Symptom-based alerts should page; cause-based signals are better as dashboard context or lower-priority tickets used *during* investigation of a symptom alert, not as standalone pages',
+    ],
+    remember: [
+      "Rule of thumb: if an alert fires and there's nothing a human needs to do right now, it shouldn't page — route it to a dashboard or a non-paging channel instead",
+    ],
+    readMinutes: 2,
+    related: ['error-budget-burn-rate'],
+  },
+]
+
 export const systemDesignConcepts: ConceptSection[] = [
   {
     id: 'sd-concept-fundamentals',
@@ -2282,5 +2759,19 @@ export const systemDesignConcepts: ConceptSection[] = [
     title: 'Common Design Problems (URL Shortener, Feed, Chat, etc.)',
     intro: 'Where every other subtopic\'s patterns get applied together end-to-end — the specific judgment calls that separate a strong answer from a mediocre one on the classic system design interview problems.',
     concepts: sdCaseStudiesConcepts,
+  },
+  {
+    id: 'sd-concept-security',
+    subtopic: 'sd-security',
+    title: 'Authentication, Authorization & Security',
+    intro: 'Security in a distributed system is an architectural concern, not a library call — who enforces identity, where trust boundaries sit, and how a compromise in one service is contained before it becomes a compromise of everything.',
+    concepts: sdSecurityConcepts,
+  },
+  {
+    id: 'sd-concept-observability',
+    subtopic: 'sd-observability',
+    title: 'Monitoring, Logging & Distributed Tracing',
+    intro: "Observability is what lets you answer questions about a distributed system you didn't anticipate asking in advance — the three pillars (metrics, logs, traces) each answer a different class of question, and none of them substitutes for the others.",
+    concepts: sdObservabilityConcepts,
   },
 ]

@@ -2157,6 +2157,636 @@ const sbSecurityCoreConcepts: ConceptCard[] = [
 ]
 
 
+const sbOauthJwtConcepts: ConceptCard[] = [
+  {
+    id: 'oauth2-roles',
+    title: 'OAuth2 Roles: Resource Server vs Authorization Server',
+    group: 'OAuth2 Model',
+    definition: 'OAuth2 splits responsibility between the authorization server (authenticates users, issues tokens) and the resource server (validates tokens, serves protected data) — a Spring Boot API is almost always the latter, not the former.',
+    whyItMatters: [
+      'Confusing the two roles is the most common OAuth2 design mistake — teams build a custom login/token-issuing flow inside their API instead of delegating to Keycloak/Okta/Cognito/Auth0 and just validating tokens',
+    ],
+    remember: [
+      'spring-boot-starter-oauth2-resource-server configures your app to validate tokens, not issue them',
+      'spring-boot-starter-oauth2-client is for apps acting as an OAuth2 client (logging users in via a third party)',
+    ],
+    readMinutes: 2,
+    related: ['grant-type-selection', 'resource-server-config'],
+  },
+  {
+    id: 'grant-type-selection',
+    title: 'Grant Type Selection',
+    group: 'OAuth2 Model',
+    definition: 'Each OAuth2 grant type fits a different trust boundary — authorization code + PKCE for user-facing apps, client credentials for service-to-service, and the implicit and resource-owner-password grants are deprecated for carrying real security risk.',
+    whyItMatters: [
+      'Implicit grant returns the access token directly in the URL fragment with no client authentication step, exposing it to browser history and referrer leakage',
+      "Resource-owner-password grant hands the client app the user's raw credentials, defeating the entire point of delegated auth",
+    ],
+    remember: [
+      'Authorization code + PKCE: any app with a user login (SPA, mobile, server-rendered) — PKCE closes the code-interception gap that plain auth code left open on public clients',
+      'Client credentials: machine-to-machine, no user context, client authenticates with its own secret',
+      'Device code grant: input-constrained devices (TVs, CLIs) — user approves on a second device',
+    ],
+    interviewAngle: {
+      q: 'Why was the implicit grant deprecated in OAuth 2.1?',
+      a: 'It returns the access token in the URL fragment with no client authentication, exposing it to browser history, logs, and referrer headers; auth code + PKCE achieves the same SPA use case without exposing the token in transit.',
+    },
+    readMinutes: 3,
+  },
+  {
+    id: 'jwt-structure-trust',
+    title: 'JWT Structure and Why You Never Trust It Unverified',
+    group: 'JWT Fundamentals',
+    definition: 'A JWT is three base64url segments — header.payload.signature — and the payload is only base64-encoded, not encrypted, so anyone can decode and read it, but nothing in the payload is trustworthy until the signature is cryptographically verified.',
+    whyItMatters: [
+      'Decoding a JWT client-side to "check" a claim without verifying the signature is a common bug — an attacker can forge any claim in an unsigned or unverified token',
+    ],
+    remember: [
+      'Base64url encoding is not encryption — never put secrets in a JWT payload',
+      "Verification means checking the signature against the issuer's key, not just successfully parsing the structure",
+    ],
+    readMinutes: 2,
+    related: ['signature-verification', 'algorithm-confusion'],
+  },
+  {
+    id: 'signature-verification',
+    title: 'Signature Verification: HMAC vs RSA/EC, and JWKS',
+    group: 'JWT Fundamentals',
+    definition: "Symmetric algorithms (HS256) verify with the same secret used to sign, which only works when the resource server and authorization server share that secret; asymmetric algorithms (RS256/ES256) let the resource server verify with a public key fetched from the authorization server's JWKS endpoint without ever holding the signing key.",
+    whyItMatters: [
+      'Sharing an HMAC secret across every resource server means any one of them could forge tokens for all the others — asymmetric signing avoids that blast radius',
+    ],
+    remember: [
+      "JwtDecoder built from jwkSetUri fetches and caches the authorization server's public keys automatically, including handling key rotation via the kid header",
+      'HS256 is fine for a single trusted service verifying its own tokens, wrong once multiple independent services need to verify',
+    ],
+    diagram: `flowchart LR
+  A[Auth Server] -->|publishes| B[JWKS Endpoint]
+  C[Resource Server] -->|fetches public key| B
+  C -->|verifies signature| D[JWT]`,
+    readMinutes: 3,
+  },
+  {
+    id: 'algorithm-confusion',
+    title: 'Algorithm Confusion Attacks',
+    group: 'Vulnerabilities',
+    definition: "A classic JWT attack tricks a naive verifier into treating an RS256-signed token's public key as an HMAC secret, or accepting alg=none, letting an attacker forge a validly-signed-looking token.",
+    whyItMatters: [
+      'If a library or hand-rolled verifier reads the alg header from the token itself and picks its verification strategy accordingly, the attacker controls that choice',
+    ],
+    remember: [
+      "Fix: pin the expected algorithm server-side and reject tokens that don't match it — never trust the alg header to select the verification method",
+      "Spring Security's JwtDecoder built from a JWKS URI is not vulnerable to this by default, but custom decoders that branch on the header are",
+    ],
+    interviewAngle: {
+      q: 'How does the RS256-to-HS256 downgrade attack work?',
+      a: "The attacker signs a forged token with HS256 using the authorization server's public RSA key (which is, well, public) as the HMAC secret; a verifier that trusts the token's own alg header will switch to HMAC verification and the forged signature checks out.",
+    },
+    readMinutes: 2,
+    related: ['signature-verification'],
+  },
+  {
+    id: 'claims-validation',
+    title: 'Claims Validation: exp, nbf, iss, aud',
+    group: 'JWT Fundamentals',
+    definition: "A verified signature only proves the token wasn't tampered with — exp/nbf enforce the validity window, iss confirms which authorization server issued it, and aud confirms the token was actually intended for this resource server.",
+    whyItMatters: [
+      'Missing audience validation is the single most common real-world JWT misconfiguration: a token legitimately issued for Service A gets accepted by Service B because both trust the same issuer and neither checks aud',
+    ],
+    remember: [
+      "Spring's default JwtDecoder validates exp and nbf out of the box; iss and aud validation must be added explicitly via a custom OAuth2TokenValidator",
+      'A shared authorization server across many microservices makes aud checking mandatory, not optional — otherwise any valid token works everywhere',
+    ],
+    readMinutes: 2,
+    related: ['resource-server-config', 'algorithm-confusion'],
+  },
+  {
+    id: 'resource-server-config',
+    title: "Spring Security's OAuth2 Resource Server Config",
+    group: 'Spring Integration',
+    definition: 'oauth2ResourceServer(oauth2 -> oauth2.jwt(...)) wires a JwtDecoder into the filter chain, and a JwtAuthenticationConverter maps token claims (typically scope or a custom claim) into Spring Security GrantedAuthoritys.',
+    whyItMatters: [
+      'The default converter maps the scope claim to SCOPE_-prefixed authorities — mismatching that prefix in @PreAuthorize checks is a frequent silent-authorization bug',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `http.oauth2ResourceServer(oauth2 -> oauth2
+    .jwt(jwt -> jwt.jwtAuthenticationConverter(customConverter())));`,
+      },
+      note: "customConverter() is where you'd map a non-standard claim (e.g. roles) instead of the default scope claim.",
+    },
+    remember: [
+      'Swap in a custom JwtAuthenticationConverter when authorities come from a claim other than scope/scp',
+      "spring.security.oauth2.resourceserver.jwt.issuer-uri auto-configures both the JwkSetUri and issuer validation from the auth server's discovery document",
+    ],
+    readMinutes: 2,
+    related: ['claims-validation', 'scopes-vs-authorities'],
+  },
+  {
+    id: 'scopes-vs-authorities',
+    title: 'Scopes vs Application Authorities',
+    group: 'Spring Integration',
+    definition: "OAuth2 scopes describe what a client application was authorized to request on the user's behalf, not the user's own roles or permissions — conflating the two lets an over-scoped client bypass application-level authorization.",
+    whyItMatters: [
+      "A client granted a broad scope like write shouldn't automatically inherit every write-capable role a user has; scopes should be treated as an additional constraint, not a substitute for the app's own RBAC",
+    ],
+    remember: [
+      'Layer checks: token must carry the required scope AND the resolved user/client must hold the required application authority',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'opaque-vs-jwt-tokens',
+    title: 'Opaque Tokens vs JWT',
+    group: 'Token Formats',
+    definition: "An opaque access token is a random reference string the resource server must validate by calling the authorization server's introspection endpoint on every request, trading a network hop for the ability to revoke instantly and keep no claims exposed client-side.",
+    whyItMatters: [
+      "JWTs scale better (no per-request introspection call) but can't be revoked before expiry without extra infrastructure (a deny-list); opaque tokens solve revocation but add latency and a hard dependency on the auth server's availability",
+    ],
+    remember: [
+      "Spring's oauth2ResourceServer(oauth2 -> oauth2.opaqueToken(...)) configures introspection-based validation instead of JwtDecoder",
+      'Common middle ground: short-lived JWT access tokens (minutes) so a compromised token self-expires quickly, avoiding the need for real-time revocation',
+    ],
+    readMinutes: 2,
+    related: ['stateless-session-tradeoffs'],
+  },
+  {
+    id: 'token-refresh-strategy',
+    title: 'Refresh Token Strategy and Rotation',
+    group: 'Token Lifecycle',
+    definition: 'A long-lived refresh token exchanged for new short-lived access tokens lets clients stay authenticated without re-prompting login, and rotating the refresh token on every use (issuing a new one, invalidating the old) limits the damage window if one is stolen.',
+    whyItMatters: [
+      'Without rotation, a leaked refresh token is valid until its (often long) expiry with no way to detect the theft',
+    ],
+    remember: [
+      'Refresh token reuse detection: if a rotated-out refresh token is presented again, treat it as a signal of compromise and revoke the whole token family',
+      'Access tokens should be short-lived (minutes) precisely because refresh tokens carry the long-lived trust instead',
+    ],
+    readMinutes: 2,
+    related: ['stateless-session-tradeoffs'],
+  },
+  {
+    id: 'stateless-session-tradeoffs',
+    title: 'Stateless Session Tradeoffs',
+    group: 'Token Lifecycle',
+    definition: "JWT-based auth avoids server-side session storage by trusting the token itself, but that statelessness means there's no built-in way to force-log-out a user or revoke a single compromised token before it expires.",
+    whyItMatters: [
+      '"Just use JWTs, they\'re stateless" ignores that logout, forced password-reset, and session-kill features all become harder without some server-side state (a deny-list, short expiry, or falling back to opaque tokens)',
+    ],
+    remember: [
+      'Common compromise: keep access tokens short-lived and stateless, but track refresh tokens server-side so revocation is still possible at that layer',
+    ],
+    readMinutes: 2,
+    related: ['opaque-vs-jwt-tokens', 'token-refresh-strategy'],
+  },
+  {
+    id: 'client-side-token-storage',
+    title: 'Client-Side Token Storage: Cookie vs localStorage',
+    group: 'Token Lifecycle',
+    definition: 'Storing an access token in localStorage exposes it to any XSS on the page, since JavaScript can read it; an httpOnly, Secure, SameSite cookie is invisible to page JavaScript and is the safer default despite adding CSRF considerations back into the picture.',
+    whyItMatters: [
+      'This is the actual tradeoff behind "where should the frontend keep the JWT" — it\'s XSS risk vs CSRF risk, not a free choice',
+    ],
+    remember: [
+      "httpOnly cookie + SameSite=Lax/Strict mitigates both XSS token theft and most CSRF, at the cost of needing CSRF tokens for state-changing requests if SameSite alone isn't sufficient",
+    ],
+    readMinutes: 2,
+  },
+]
+
+const sbTestingConcepts: ConceptCard[] = [
+  {
+    id: 'spring-boot-test-cost',
+    title: '@SpringBootTest Cost',
+    group: 'Context Strategy',
+    definition: '@SpringBootTest boots the entire application context — every @Component, @Configuration, and auto-configuration — making it the slowest and broadest test annotation Spring Boot offers.',
+    whyItMatters: [
+      'A suite of hundreds of @SpringBootTest classes with even slightly different configuration each pays a full context startup, turning a 30-second suite into 10+ minutes',
+      "It's the right tool for true end-to-end tests (a handful), not the default for every test",
+    ],
+    remember: [
+      'webEnvironment=RANDOM_PORT starts a real embedded server; NONE (default) does not — pick based on whether you need actual HTTP',
+      'Prefer a slice annotation (@WebMvcTest, @DataJpaTest, ...) whenever the test only exercises one layer',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'test-slices-overview',
+    title: 'Test Slices',
+    group: 'Context Strategy',
+    definition: 'Slice annotations like @WebMvcTest, @DataJpaTest, and @JsonTest load only the auto-configuration relevant to one layer instead of the whole application.',
+    whyItMatters: [
+      '@WebMvcTest loads controllers, @ControllerAdvice, converters, and MVC infra — but not @Service or @Repository beans, so you must @MockBean them',
+      '@DataJpaTest loads the JPA layer, an embedded datasource, and Spring Data repositories — no @Controller, no @Service',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@WebMvcTest(OrderController.class)
+class OrderControllerTest {
+
+  @Autowired MockMvc mockMvc;
+
+  @MockBean OrderService orderService;
+}`,
+      },
+      note: "OrderService isn't a web bean, so @WebMvcTest never creates a real one — the test must supply a mock or the context fails to wire OrderController.",
+    },
+    remember: [
+      "Each slice has a fixed, documented set of auto-configuration it enables — check the @AutoConfigureXxx annotations on the slice's meta-annotation if unsure what's included",
+      'Slices are additive to what you filter for: @WebMvcTest(OrderController.class) scans only that controller, not every @RestController in the app',
+    ],
+    interviewAngle: {
+      q: 'Why does a @WebMvcTest fail with a NoSuchBeanDefinitionException for a @Service you know exists?',
+      a: '@WebMvcTest deliberately excludes @Service/@Repository beans from the context — only web-layer beans are loaded, so any dependency the controller needs must be supplied as a @MockBean.',
+    },
+    related: ['mockbean-context-cache', 'data-jpa-test-datasource'],
+    readMinutes: 2,
+  },
+  {
+    id: 'context-caching',
+    title: 'Spring TestContext Caching',
+    group: 'Context Strategy',
+    definition: "Spring's TestContext framework caches application contexts by their full configuration signature (config classes, profiles, property sources, mocked beans) and reuses a cached context across test classes that share an identical signature.",
+    whyItMatters: [
+      'This is the single biggest lever on suite runtime — a suite that reuses one cached context across 50 test classes runs vastly faster than one that starts 50 distinct contexts',
+      'Any difference in the signature — a different @MockBean, a different @ActiveProfiles, a different @TestPropertySource — creates a cache miss and a brand-new context',
+    ],
+    remember: [
+      'The cache key includes declared @MockBean/@SpyBean types, so two otherwise-identical test classes that mock different beans do NOT share a context',
+      'The default cache has a max size (32 by default) — exceeding it evicts the least-recently-used context, so an unbounded variety of configurations defeats caching entirely',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'mockbean-context-cache',
+    title: '@MockBean/@SpyBean and Cache Invalidation',
+    group: 'Mocking',
+    definition: "@MockBean and @SpyBean replace a bean in the application context, which changes that context's cache signature and forces a new context for any test class using a different combination of mocks.",
+    whyItMatters: [
+      'Scattering @MockBean declarations inconsistently across otherwise-similar test classes is the most common accidental cause of a slow suite — each unique mock combination pays a fresh context startup',
+      'A @MockBean also resets between test methods within a class by default, which can silently reset stubbing you expected to persist',
+    ],
+    remember: [
+      'Centralize shared mock setup in a common base test class or @TestConfiguration so multiple test classes hit the same cache key',
+      '@SpyBean wraps a real bean instead of replacing it entirely — but it still changes the context signature the same way @MockBean does',
+    ],
+    interviewAngle: {
+      q: 'The team added one @MockBean to a test class and the suite went from 2 minutes to 6. Why?',
+      a: "That @MockBean changed the context's cache signature, so Spring can no longer reuse the context that other test classes shared — that class (and anything with the same new signature) now pays its own full context startup.",
+    },
+    related: ['context-caching', 'test-slices-overview'],
+    readMinutes: 2,
+  },
+  {
+    id: 'mockmvc-vs-webtestclient',
+    title: 'MockMvc vs WebTestClient',
+    group: 'Web Layer Testing',
+    definition: 'MockMvc dispatches requests directly into the servlet-based DispatcherServlet without a network layer, while WebTestClient can test either in-process (mock server) or against a real running server, and is the only option for WebFlux/reactive controllers.',
+    whyItMatters: [
+      'MockMvc is faster (no actual sockets) and is the standard choice for @WebMvcTest on a Servlet-stack (Spring MVC) app',
+      'WebTestClient is required for reactive (WebFlux) controllers, and its bindToServer() mode is also useful for true black-box integration tests against a running app',
+    ],
+    remember: [
+      "MockMvc can't test things that depend on the real servlet container (e.g. actual network timeouts, certain filter/container interactions)",
+      "WebTestClient's fluent assertions (expectBody, expectStatus) work the same whether it's bound to a mock context or a real server, making it easy to reuse test code across layers",
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'testcontainers-vs-embedded-db',
+    title: 'Testcontainers vs H2/Embedded DB',
+    group: 'Data Layer Testing',
+    definition: 'Testcontainers spins up the real production database (e.g. Postgres) in Docker for tests, while H2 or another embedded database swaps in a different engine entirely purely for test convenience.',
+    whyItMatters: [
+      "H2's SQL dialect, type coercion, and locking semantics diverge from Postgres/MySQL in ways that let bugs pass tests and then fail in production — native queries, JSON columns, and DB-specific functions are common casualties",
+      'Testcontainers costs startup time (container boot per suite or per class) and requires Docker in CI, which H2 avoids entirely',
+    ],
+    remember: [
+      'A green H2 test suite is not proof of correctness against the real database — treat it as a fast smoke check, not a substitute for at least some Testcontainers-backed integration tests',
+      'Reuse one container across a whole suite (singleton container pattern) rather than starting a new one per test class, or the runtime cost dominates',
+    ],
+    interviewAngle: {
+      q: 'Your @DataJpaTest suite is green but a native query fails in production against Postgres. Why?',
+      a: '@DataJpaTest defaults to an embedded database (H2) unless you disable that — its SQL dialect and behavior diverge from Postgres, so dialect-specific SQL that H2 tolerates or silently reinterprets can behave differently or fail outright in production.',
+    },
+    related: ['data-jpa-test-datasource'],
+    readMinutes: 2,
+  },
+  {
+    id: 'data-jpa-test-datasource',
+    title: "@DataJpaTest's Embedded Datasource Default",
+    group: 'Data Layer Testing',
+    definition: '@DataJpaTest auto-configures an in-memory embedded database by default and replaces any real DataSource bean, unless @AutoConfigureTestDatabase(replace = Replace.NONE) opts out.',
+    whyItMatters: [
+      'This default is what silently swaps a production Postgres config for H2 in tests — surprising when the intent was to test against Testcontainers',
+      'It also wraps each test method in a transaction that rolls back by default, so persisted data never actually commits between tests',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@DataJpaTest
+@AutoConfigureTestDatabase(replace = Replace.NONE)
+@Testcontainers
+class OrderRepositoryTest {
+  @Container static PostgreSQLContainer<?> db = new PostgreSQLContainer<>("postgres:16");
+}`,
+      },
+      note: 'Replace.NONE is what stops @DataJpaTest from overriding the Testcontainers-backed DataSource with H2.',
+    },
+    remember: [
+      'Replace.NONE is required whenever @DataJpaTest is combined with Testcontainers or any other real datasource',
+    ],
+    related: ['testcontainers-vs-embedded-db'],
+    readMinutes: 2,
+  },
+  {
+    id: 'transactional-test-rollback',
+    title: '@Transactional Test Rollback',
+    group: 'Data Layer Testing',
+    definition: 'A @Transactional test method runs inside a transaction that is rolled back automatically after the method finishes, so changes never persist to the next test.',
+    whyItMatters: [
+      "This gives test isolation for free without manual cleanup, but it also means code paths that rely on a transaction actually committing (e.g. a separate thread reading the same row, or a native trigger firing on commit) won't behave the same way under test",
+      "Anything that runs in a new/separate transaction (REQUIRES_NEW) inside the test WILL actually commit, since it's a distinct physical transaction that the outer rollback can't undo",
+    ],
+    remember: [
+      "Rollback is a test-only default from Spring's test framework, not something @Transactional does in production — production behavior commits normally",
+      'TestEntityManager.flush() is often needed inside a @DataJpaTest to force SQL to actually run against the DB before assertions, since Hibernate otherwise batches/delays writes',
+    ],
+    interviewAngle: {
+      q: "A test using @Transactional passes but the equivalent production code path fails after actually persisting. What's a likely gap?",
+      a: "The test's transaction rolled back and never truly committed, so any behavior triggered specifically by a commit (async listeners, DB triggers, another connection reading the row) was never exercised — the test only proved the in-transaction state was correct.",
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'dirties-context-cost',
+    title: '@DirtiesContext Cost',
+    group: 'Context Strategy',
+    definition: '@DirtiesContext tells Spring to discard and rebuild the application context after the annotated test or class, forcing a fresh context even where caching would otherwise reuse one.',
+    whyItMatters: [
+      "It's sometimes necessary (a test mutates shared static state or a singleton bean in a way that would leak into later tests), but every use pays a full context rebuild — overusing it defeats context caching just as thoroughly as inconsistent @MockBean usage",
+    ],
+    remember: [
+      'Prefer designing the test to not mutate shared context state (e.g. reset via @BeforeEach logic) over reaching for @DirtiesContext as a default fix',
+      'MethodMode/ClassMode control whether the context is torn down after one method or the whole class — picking the narrowest scope limits the damage',
+    ],
+    readMinutes: 1,
+  },
+  {
+    id: 'test-slice-scope-mismatch',
+    title: 'Slice Scope Mismatches',
+    group: 'Context Strategy',
+    definition: "Mixing responsibilities that belong to different layers into one test class (e.g. asserting on repository behavior inside a @WebMvcTest) doesn't work because each slice only auto-configures its own layer's beans.",
+    whyItMatters: [
+      'The fix is usually two separate tests at the right slice, not a bigger @SpringBootTest — chasing one "do everything" test back to @SpringBootTest reintroduces the full-context cost the slices exist to avoid',
+    ],
+    remember: [
+      "If a test needs infra from more than one slice regularly, that's often a sign the unit under test has too many responsibilities, not that the test needs a bigger annotation",
+    ],
+    readMinutes: 1,
+  },
+]
+
+const sbActuatorConcepts: ConceptCard[] = [
+  {
+    id: 'actuator-exposure-is-opt-in',
+    title: 'Endpoint Exposure Is Deny-by-Default, Opt-In by Config',
+    group: 'Foundations & Auto-Configuration',
+    definition: 'Actuator auto-configures dozens of endpoint beans on the classpath, but only /health is exposed over HTTP by default — everything else (including /env, /beans, /heapdump) requires explicit inclusion via management.endpoints.web.exposure.include.',
+    whyItMatters: [
+      'The endpoint bean existing and the endpoint being web-exposed are two separate auto-configuration decisions — a bean can be present and still return 404 until exposed',
+    ],
+    remember: [
+      "management.endpoints.web.exposure.include=* exposes every endpoint present, including ones added later by a new starter — it's a common accidental-exposure source, not just a lazy shortcut",
+      'Exposure and sensitivity are different axes: exposure controls whether an endpoint answers at all, security config controls who can call it',
+    ],
+    interviewAngle: {
+      q: 'Why did adding spring-boot-starter-actuator alone not expose /env or /heapdump?',
+      a: "Because web exposure is opt-in — only /health is exposed by default regardless of what's on the classpath; every other endpoint needs an explicit include.",
+    },
+    related: ['actuator-sensitive-endpoints-risk', 'actuator-separate-security'],
+    readMinutes: 2,
+  },
+  {
+    id: 'actuator-sensitive-endpoints-risk',
+    title: 'Sensitive Endpoints as a Production Incident Class',
+    group: 'Production Safety',
+    definition: 'Endpoints like /env, /heapdump, /shutdown, and /beans leak configuration secrets, full heap contents, or process control if left exposed and unauthenticated on the public network.',
+    whyItMatters: [
+      '/env can leak datasource passwords and API keys sourced from environment variables unless a property sanitizer or Sanitizer function is configured',
+      '/heapdump dumps the entire JVM heap — including in-memory secrets and PII — as a downloadable file with zero built-in access control beyond whatever security config you add',
+    ],
+    remember: [
+      "'Exposed to the web' and 'secured' are unrelated in Actuator's default posture — a naive management.endpoints.web.exposure.include=* on a service with no separate security config is a real breach vector, not a theoretical one",
+      'Spring Boot sanitizes known-sensitive property key patterns (password, secret, key, token) in /env and /configprops by default, but custom-named secrets slip through',
+    ],
+    related: ['actuator-separate-security', 'actuator-auto-config-mechanics'],
+    readMinutes: 2,
+  },
+  {
+    id: 'actuator-separate-security',
+    title: 'Actuator Security Is a Separate Filter Chain, Not an Afterthought',
+    group: 'Production Safety',
+    definition: 'Actuator endpoints should get their own SecurityFilterChain (or their own management port entirely) rather than inheriting whatever rules happen to apply to application URLs.',
+    whyItMatters: [
+      'A blanket permitAll() rule written for public app endpoints, or a security config that only matches /api/**, silently leaves /actuator/** unauthenticated',
+      "Putting actuator on a dedicated management.server.port isolates it at the network layer — a firewall rule can block the port entirely, which application-level auth alone can't guarantee against misconfiguration",
+    ],
+    remember: [
+      'Order matters: a Spring Security filter chain matched with a narrow RequestMatcher for /actuator/** must be registered with higher precedence (lower @Order) than a catch-all chain, or the catch-all wins',
+      'management.server.port on a different port still runs in the same JVM/process — it isolates network exposure, not resource contention or crash blast radius',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@Bean
+@Order(1)
+SecurityFilterChain actuatorChain(HttpSecurity http) throws Exception {
+    http.securityMatcher(EndpointRequest.toAnyEndpoint())
+        .authorizeHttpRequests(auth -> auth
+            .requestMatchers(EndpointRequest.to(HealthEndpoint.class)).permitAll()
+            .anyRequest().hasRole("OPS"))
+        .httpBasic(withDefaults());
+    return http.build();
+}`,
+      },
+      note: "EndpointRequest.toAnyEndpoint() scopes this filter chain to actuator paths only, independent of how the app's main chain is written.",
+    },
+    interviewAngle: {
+      q: "Your app's security config permits all requests to /api/**. Actuator is exposed on the same port. What's the risk?",
+      a: 'If no filter chain explicitly matches /actuator/**, requests to it fall through to whatever the least-specific matching rule is — often an unauthenticated default — so actuator needs its own explicitly ordered SecurityFilterChain or a separate management port.',
+    },
+    related: ['actuator-sensitive-endpoints-risk', 'actuator-exposure-is-opt-in'],
+    readMinutes: 3,
+  },
+  {
+    id: 'actuator-health-composite-aggregation',
+    title: 'Composite Health Aggregation & Status Ordering',
+    group: 'Health Checks',
+    definition: "The /health endpoint aggregates every registered HealthIndicator into one overall status using a configurable severity order (DOWN > OUT_OF_SERVICE > UP > UNKNOWN by default), so a single failing dependency can flip the whole app's reported health.",
+    whyItMatters: [
+      "One flaky, non-critical HealthIndicator (e.g. an optional third-party API check) can take the whole service out of a load balancer's rotation if its status is allowed to dominate the aggregate",
+    ],
+    remember: [
+      'management.endpoint.health.status.order lets you rewrite severity ranking, and management.health.<indicator>.enabled lets you disable individual indicators entirely',
+      'A HealthIndicator that throws an unhandled exception is treated as DOWN, not ignored — defensive try/catch inside the indicator is often necessary to avoid an unrelated bug tanking health',
+    ],
+    related: ['actuator-custom-health-indicator', 'actuator-readiness-vs-liveness'],
+    readMinutes: 2,
+  },
+  {
+    id: 'actuator-custom-health-indicator',
+    title: 'Custom HealthIndicator Must Be Timeout-Bounded',
+    group: 'Health Checks',
+    definition: 'A custom HealthIndicator that calls a downstream dependency (DB, remote API) without an explicit timeout can hang the health check itself, which cascades into failed readiness probes and pod restarts.',
+    whyItMatters: [
+      "Kubernetes calls the readiness/liveness endpoint on a tight interval with its own timeout — if your indicator's downstream call blocks longer than that, the probe fails even though the app process itself is healthy",
+    ],
+    remember: [
+      'Prefer a lightweight, bounded check (connection pool ping, cached last-known-good state) over a full round-trip call inside a health indicator invoked every few seconds',
+      'A hung liveness probe is worse than a failing one — it can trigger repeated pod kills under load exactly when the dependency is already struggling',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@Component
+class DownstreamHealthIndicator implements HealthIndicator {
+    public Health health() {
+        try {
+            boolean ok = client.pingWithTimeout(Duration.ofMillis(200));
+            return ok ? Health.up().build() : Health.down().build();
+        } catch (Exception e) {
+            return Health.down(e).build();
+        }
+    }
+}`,
+      },
+    },
+    related: ['actuator-health-composite-aggregation', 'actuator-readiness-vs-liveness'],
+    readMinutes: 2,
+  },
+  {
+    id: 'actuator-readiness-vs-liveness',
+    title: 'Readiness vs Liveness Are Different Questions',
+    group: 'Health Checks',
+    definition: "Liveness (/actuator/health/liveness) asks 'is the process broken and should be restarted', while readiness (/actuator/health/readiness) asks 'is it currently able to serve traffic' — Spring Boot maps these to separate health groups so a temporary dependency outage doesn't trigger a pointless restart.",
+    whyItMatters: [
+      'Wiring a downstream-dependency check into the liveness group instead of readiness causes Kubernetes to kill and restart pods when a database is merely slow — restarting the app does nothing to fix the database and just adds churn',
+    ],
+    remember: [
+      "Liveness should only reflect the app's own internal state (deadlock, unrecoverable internal error) — not external dependencies",
+      'Readiness should reflect whether the app can currently do useful work — external dependency checks belong here',
+      'Enabled via management.endpoint.health.probes.enabled and management.health.livenessstate/readinessstate — Spring Boot publishes ApplicationAvailability events (LivenessState, ReadinessState) that the probes read',
+    ],
+    diagram: `flowchart LR
+  A[App Process] -->|internal fault| B[Liveness DOWN]
+  A -->|dependency down| C[Readiness DOWN]
+  B --> D[Pod Restarted]
+  C --> E[Removed From LB]`,
+    interviewAngle: {
+      q: "A downstream payment API outage caused pods to restart in a loop instead of just being pulled from the load balancer. What's misconfigured?",
+      a: "The payment API's health check was likely wired into the liveness group instead of readiness — liveness failures trigger a restart, but an external outage should only affect readiness so the pod stays alive and simply stops receiving traffic until the dependency recovers.",
+    },
+    related: ['actuator-custom-health-indicator', 'actuator-graceful-shutdown'],
+    readMinutes: 3,
+  },
+  {
+    id: 'actuator-graceful-shutdown',
+    title: 'Graceful Shutdown & Readiness Coordination on SIGTERM',
+    group: 'Health Checks',
+    definition: 'On SIGTERM, a well-behaved deployment should flip readiness to DOWN immediately (so the load balancer stops routing new traffic) before the app finishes in-flight requests and shuts down, rather than dying mid-request.',
+    whyItMatters: [
+      "Without this coordination there's a race: Kubernetes removes a terminating pod from service endpoints asynchronously, so requests can still land on a pod that's already begun shutting down",
+    ],
+    remember: [
+      'server.shutdown=graceful plus a spring.lifecycle.timeout-per-shutdown-phase gives in-flight requests time to complete before the context closes',
+      "Pairing this with a preStop hook (sleep a few seconds before sending SIGTERM) covers the endpoint-propagation delay that graceful shutdown alone doesn't address",
+    ],
+    related: ['actuator-readiness-vs-liveness'],
+    readMinutes: 2,
+  },
+  {
+    id: 'actuator-micrometer-facade',
+    title: 'Micrometer Is a Facade, Not a Metrics Backend',
+    group: 'Metrics & Micrometer',
+    definition: 'Micrometer provides a vendor-neutral metrics API (Counter, Timer, Gauge, DistributionSummary) that Actuator auto-registers a MeterRegistry for; adding a specific registry dependency (micrometer-registry-prometheus, -datadog, etc.) determines where those metrics actually go.',
+    whyItMatters: [
+      'Application code instruments against MeterRegistry once and stays backend-agnostic — swapping Prometheus for Datadog is a dependency and config change, not a code rewrite',
+    ],
+    remember: [
+      "/actuator/prometheus is a separate endpoint from /actuator/metrics — the latter is Micrometer's own browsable JSON view, the former is the Prometheus-formatted scrape target and only appears once micrometer-registry-prometheus is on the classpath",
+      'CompositeMeterRegistry lets multiple backends receive the same metrics simultaneously',
+    ],
+    related: ['actuator-custom-metrics', 'actuator-metric-cardinality'],
+    readMinutes: 2,
+  },
+  {
+    id: 'actuator-metric-cardinality',
+    title: 'Tag Cardinality Explosion',
+    group: 'Metrics & Micrometer',
+    definition: 'Every unique combination of tag values on a Micrometer meter creates a distinct time series in the backend — tagging a metric with something unbounded (user ID, request ID, raw URL with path variables) multiplies storage and query cost, sometimes catastrophically.',
+    whyItMatters: [
+      'A Prometheus server can fall over or a metrics bill can spike by orders of magnitude from one bad tag choice that looked harmless in code review',
+      "Spring MVC's default http.server.requests timer already guards against this by templating the URI (/users/{id} not /users/42) specifically to keep cardinality bounded",
+    ],
+    remember: [
+      "Rule of thumb: a tag's value set should be small and known in advance (status code, HTTP method, region) — never a raw identifier or free-text field",
+      'Micrometer supports MeterFilter.deny/maximumAllowableTags as a safety net, but the real fix is not creating the unbounded tag in the first place',
+    ],
+    interviewAngle: {
+      q: 'A team added request.id as a tag on a custom Timer and Prometheus memory usage spiked. Why?',
+      a: "Each unique tag value combination becomes its own time series; a per-request identifier is effectively unbounded, so the metric's cardinality grows without limit and overwhelms the backend's storage.",
+    },
+    related: ['actuator-custom-metrics', 'actuator-micrometer-facade'],
+    readMinutes: 2,
+  },
+  {
+    id: 'actuator-custom-metrics',
+    title: 'Registering Custom Metrics',
+    group: 'Metrics & Micrometer',
+    definition: "Business-specific metrics (orders placed, queue depth, cache hit ratio) are registered directly against the injected MeterRegistry rather than relying only on Actuator's auto-instrumented JVM/HTTP metrics.",
+    whyItMatters: [
+      'Auto-instrumented metrics tell you the app is up; custom metrics tell you the app is doing the right thing — both are needed for real observability',
+    ],
+    remember: [
+      'Counter/Timer/Gauge have different semantics: Counter only increases, Gauge samples a current value on demand (must reference a live object, not a snapshot number, or it goes stale), Timer records both count and duration distribution',
+      "@Timed on a method needs a TimedAspect bean registered explicitly — it does nothing silently if that aspect isn't configured, a common gotcha",
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@Bean
+MeterRegistryCustomizer<MeterRegistry> commonTags() {
+    return registry -> registry.config().commonTags("service", "orders");
+}
+
+Counter.builder("orders.placed")
+    .tag("channel", "web")
+    .register(meterRegistry)
+    .increment();`,
+      },
+    },
+    related: ['actuator-metric-cardinality', 'actuator-micrometer-facade'],
+    readMinutes: 2,
+  },
+  {
+    id: 'actuator-auto-config-mechanics',
+    title: "Actuator's Own Auto-Configuration Layering",
+    group: 'Foundations & Auto-Configuration',
+    definition: "Each endpoint is backed by its own conditional auto-configuration class (e.g. HealthEndpointAutoConfiguration) that only activates when the endpoint's supporting beans are present and it's enabled/exposed — the same @Conditional machinery as any other Spring Boot starter, not a special case.",
+    whyItMatters: [
+      "Understanding this explains why adding a dependency (e.g. a DataSource) can silently add a new HealthIndicator (DataSourceHealthIndicator) with zero code changes — it's auto-configured to back off when its target bean is absent and activate when present",
+    ],
+    remember: [
+      "management.endpoint.<id>.enabled controls whether the endpoint bean is created at all; web exposure config controls whether it's reachable over HTTP — disabling the former is a stronger guarantee than excluding it from exposure",
+    ],
+    related: ['actuator-exposure-is-opt-in'],
+    readMinutes: 2,
+  },
+]
+
 export const springBootConcepts: ConceptSection[] = [
   {
     id: 'sb-concept-transactions',
@@ -2220,5 +2850,26 @@ export const springBootConcepts: ConceptSection[] = [
     title: 'Spring Data JPA & Repositories',
     intro: 'The repository abstraction that generates data access code at runtime — query methods, entity/relationship mapping, and the Persistence Context that governs how JPA tracks and flushes changes.',
     concepts: sbDataJpaConcepts,
+  },
+  {
+    id: 'sb-concept-oauth-jwt',
+    subtopic: 'sb-oauth-jwt',
+    title: 'OAuth2 & JWT',
+    intro: "Goes past the filter-chain fundamentals from Security Core into OAuth2's delegation model and JWT's specific validation pitfalls — the parts that show up as real vulnerabilities in production.",
+    concepts: sbOauthJwtConcepts,
+  },
+  {
+    id: 'sb-concept-testing',
+    subtopic: 'sb-testing',
+    title: 'Testing Spring Boot Applications',
+    intro: 'Spring Boot test support ranges from a full application context down to narrow slices — the choice mostly comes down to how much Spring you actually need for a given test, and how badly a wrong choice tanks suite runtime.',
+    concepts: sbTestingConcepts,
+  },
+  {
+    id: 'sb-concept-actuator',
+    subtopic: 'sb-actuator',
+    title: 'Spring Boot Actuator & Observability',
+    intro: 'Actuator turns a Spring Boot app into something an ops team can operate: health, metrics, and diagnostics endpoints wired up mostly by convention. The senior-level territory is what you must lock down before shipping it, and how it plugs into Micrometer and Kubernetes.',
+    concepts: sbActuatorConcepts,
   },
 ]
