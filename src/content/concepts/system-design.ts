@@ -2682,6 +2682,1444 @@ const sdObservabilityConcepts: ConceptCard[] = [
   },
 ]
 
+const sdEstimationConcepts: ConceptCard[] = [
+  {
+    id: 'estimation-as-communication',
+    title: 'Estimation Is a Communication Skill, Not a Math Test',
+    group: 'The Estimation Mindset',
+    definition: 'The interviewer is grading how you decompose the problem and narrate assumptions out loud, not whether your final QPS number is exact.',
+    whyItMatters: [
+      "A confidently stated, wrong-by-2x number with clear assumptions beats a silent correct one — it shows how you'll reason under ambiguity in production",
+      "Narrating assumptions ('let's say 500M DAU, each posts twice a day') gives the interviewer hooks to redirect you before you go deep in the wrong direction",
+    ],
+    remember: [
+      'State every assumption as a sentence before using it in a formula — never do silent mental math',
+      'Round aggressively to powers of 10 or clean numbers (86400s/day -> ~100k) — precision past 1 significant figure is wasted effort',
+      'Being off by 2-3x is fine; being off by 10x or confusing units (KB vs Kb, per-second vs per-day) is the actual failure mode',
+    ],
+    interviewAngle: {
+      q: 'Why do interviewers ask you to estimate QPS for a system instead of just giving you the number?',
+      a: 'Because the goal is to watch your decomposition process and assumption-stating — the number itself only needs to be within an order of magnitude to inform the design decisions (do we need sharding, caching, a CDN) that follow.',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'traffic-estimation-methodology',
+    title: 'Traffic Estimation: DAU to QPS',
+    group: 'Core Methodology',
+    definition: 'Convert a given DAU/MAU figure into requests-per-second by chaining actions-per-user-per-day and seconds-per-day, then splitting by read:write ratio.',
+    whyItMatters: [
+      'This is the single formula almost every estimation question reduces to — memorize the chain, not a memorized final number',
+    ],
+    example: {
+      code: {
+        language: 'text',
+        code: `DAU = 100M
+actions/user/day = 10 (e.g. tweet reads)
+total actions/day = 1B
+seconds/day ~= 86400 ~= 10^5
+avg QPS = 1B / 10^5 = 10,000 QPS`,
+      },
+      note: 'Rounding 86400 to 10^5 is standard interview shorthand and keeps the mental math in clean powers of ten.',
+    },
+    remember: [
+      'Chain: DAU -> actions/user/day -> total actions/day -> divide by ~10^5 seconds/day -> avg QPS',
+      "MAU is not DAU — never substitute one for the other without stating the stickiness ratio (DAU/MAU, typically 10-50%) you're assuming",
+      'Split into read QPS and write QPS separately once you have the total, since they drive different design decisions (caching vs write scaling)',
+    ],
+    related: ['peak-vs-average-traffic', 'read-write-ratio-assumptions'],
+    readMinutes: 2,
+  },
+  {
+    id: 'peak-vs-average-traffic',
+    title: 'Peak vs Average Traffic',
+    group: 'Core Methodology',
+    definition: 'Provision for peak load, not average — a common multiplier is 2-3x average QPS, sometimes higher for spiky/event-driven traffic.',
+    whyItMatters: [
+      'Designing capacity around average QPS is the single most common estimation mistake — it silently understates the hardware/sharding needed',
+    ],
+    remember: [
+      'Default peak factor when nothing else is stated: 2-3x average',
+      'Traffic with a known trigger (live sports, flash sale, breaking news) can spike 10-100x — call this out explicitly rather than using the generic multiplier',
+      "State which number (avg or peak) you're using at each step of the design — mixing them mid-calculation is a common silent error",
+    ],
+    interviewAngle: {
+      q: 'You calculated 10,000 average QPS — is that the number you provision servers for?',
+      a: 'No — provision for peak, typically 2-3x average (or higher for known spike events), since under-provisioning for average load means the system falls over exactly when it matters most.',
+    },
+    related: ['traffic-estimation-methodology'],
+    readMinutes: 1,
+  },
+  {
+    id: 'read-write-ratio-assumptions',
+    title: 'Read:Write Ratio Assumptions',
+    group: 'Core Methodology',
+    definition: 'Most consumer systems are read-heavy (100:1 or more for feeds/timelines); state the ratio explicitly since it drives caching and replication strategy.',
+    whyItMatters: [
+      'A 100:1 read:write system justifies aggressive caching and read replicas; a near-1:1 system (chat, collaborative editing) does not — the ratio changes the architecture, not just the numbers',
+    ],
+    remember: [
+      'Twitter-timeline-style systems: often 100:1 to 1000:1 reads:writes',
+      'Chat/messaging systems: closer to 1:1, sometimes write-heavier at send-fanout time',
+      "Always ask or state the ratio before splitting total QPS — don't assume 100:1 by default for every system",
+    ],
+    related: ['traffic-estimation-methodology'],
+    readMinutes: 1,
+  },
+  {
+    id: 'latency-numbers-every-engineer-should-know',
+    title: 'Latency Numbers Every Engineer Should Know',
+    group: 'Memorized Reference Numbers',
+    definition: 'A rough order-of-magnitude ladder from L1 cache reference to a cross-region network round trip, spanning about 8 orders of magnitude.',
+    whyItMatters: [
+      "Justifies design choices on the spot — 'a cross-region call costs ~150ms, so we cache locally instead' is the kind of sentence this ladder unlocks",
+    ],
+    example: {
+      code: {
+        language: 'text',
+        code: `L1 cache reference           ~1 ns
+Main memory reference        ~100 ns
+SSD random read              ~100 us (0.1 ms)
+Read 1MB sequentially from memory   ~10 us
+Read 1MB sequentially from SSD      ~1 ms
+Round trip within same datacenter   ~0.5 ms
+Disk seek (spinning)          ~10 ms
+Read 1MB over 1Gbps network   ~10 ms
+Round trip cross-region (US to EU)  ~100-150 ms`,
+      },
+      note: 'Exact figures drift with hardware generation — the point is the relative gaps: memory beats SSD by ~1000x, SSD beats spinning disk seek by ~100x, same-DC beats cross-region by ~100-300x.',
+    },
+    remember: [
+      'Memory is ~100x faster than SSD; SSD is ~100x faster than a disk seek',
+      'Same-datacenter round trip (~0.5ms) is roughly 2-3 orders of magnitude cheaper than cross-region (~150ms)',
+      "You don't need exact figures — knowing 'memory << SSD << disk seek << cross-region network' in relative terms is what interviewers actually probe for",
+    ],
+    diagram: `flowchart LR
+  A[L1 cache ns] --> B[Memory 100ns]
+  B --> C[SSD 100us]
+  C --> D[Same DC 0.5ms]
+  D --> E[Cross region 150ms]`,
+    readMinutes: 2,
+  },
+  {
+    id: 'storage-estimation-formula',
+    title: 'Storage Estimation: Record Size x Growth x Retention',
+    group: 'Core Methodology',
+    definition: 'Total storage = (per-record size) x (records created per day) x (retention period), then multiplied by replication factor for actual disk footprint.',
+    whyItMatters: [
+      'Skipping any one of these four multipliers is the most common way an interview storage estimate ends up wrong by 3-10x',
+    ],
+    example: {
+      code: {
+        language: 'text',
+        code: `tweet metadata = 300 bytes
+tweets/day = 500M
+raw storage/day = 150 GB
+retention = 5 years (~1800 days)
+raw total = 150GB * 1800 = ~270 TB
+with 3x replication = ~800 TB`,
+      },
+      note: "Media (images/video) attached to records is usually estimated as a separate line item with its own size, since it's often 100-1000x larger than the metadata row.",
+    },
+    remember: [
+      'Four multipliers: per-record size, records/day, retention period, replication factor — missing any one silently understates the answer',
+      'Media/blob storage (images, video) should be estimated separately from structured record metadata — wildly different per-item size',
+      'State units at every step (bytes vs bits, GB vs TB) — this is the single most common silent-error source in storage math',
+    ],
+    related: ['replication-factor-in-estimates', 'bandwidth-estimation'],
+    readMinutes: 2,
+  },
+  {
+    id: 'replication-factor-in-estimates',
+    title: 'Forgetting Replication Factor',
+    group: 'Common Estimation Traps',
+    definition: 'Raw data size is not disk footprint — production systems replicate data (commonly 3x) for durability and availability, and estimates that skip this understate storage/cost by that same factor.',
+    whyItMatters: [
+      'A storage estimate that omits replication looks fine on paper but leads to a 3x under-provisioned cost/capacity plan',
+    ],
+    remember: [
+      'Default assumption when unstated: 3x replication (common in HDFS, Cassandra, most distributed stores)',
+      "State whether your number is 'raw logical data' or 'physical disk footprint' — conflating them is the trap, not the multiplication itself",
+    ],
+    related: ['storage-estimation-formula'],
+    readMinutes: 1,
+  },
+  {
+    id: 'bandwidth-estimation',
+    title: 'Bandwidth Estimation from QPS x Payload Size',
+    group: 'Core Methodology',
+    definition: 'Network bandwidth = requests/second x average payload size, computed separately for ingress (writes/uploads) and egress (reads/downloads) since they usually differ by orders of magnitude.',
+    whyItMatters: [
+      'Egress vs ingress asymmetry (e.g. video platforms: small upload, huge fanout of reads) directly determines whether a CDN is a nice-to-have or a requirement',
+    ],
+    example: {
+      code: {
+        language: 'text',
+        code: `read QPS = 10,000
+avg response payload = 2 KB
+read bandwidth = 10,000 * 2KB = 20 MB/s ~= 160 Mbps`,
+      },
+      note: 'Remember to convert bytes to bits (x8) when comparing against a link/CDN bandwidth quoted in bits per second — this unit slip is a classic trap.',
+    },
+    remember: [
+      'Compute ingress and egress bandwidth separately — they rarely match, and the ratio (e.g. 1 upload : 1000 downloads for video/photo sharing) is itself a design signal',
+      'Watch bytes vs bits — bandwidth is usually quoted in Mbps/Gbps (bits) but payload sizes are usually estimated in bytes',
+    ],
+    related: ['storage-estimation-formula', 'unit-confusion-traps'],
+    readMinutes: 1,
+  },
+  {
+    id: 'unit-confusion-traps',
+    title: 'Unit Confusion (Bytes vs Bits, Per-Second vs Per-Day)',
+    group: 'Common Estimation Traps',
+    definition: 'The most common way an otherwise-correct estimation derivation produces a wrong final number is silently mixing units mid-calculation.',
+    whyItMatters: [
+      'A single unit slip (KB vs Kb, per-day vs per-second) compounds through every downstream formula that reuses the number',
+    ],
+    remember: [
+      'Bytes (B) vs bits (b): 1 byte = 8 bits — storage is bytes, network links are usually bits',
+      "State the unit next to every number you write down, even in scratch math — don't carry a bare '10000' forward and forget if it was per-second or per-day",
+      'KB/MB/GB/TB should be tracked as powers of 10^3 in interviews (not 2^10) for simplicity — say so once and stay consistent',
+    ],
+    related: ['bandwidth-estimation', 'storage-estimation-formula'],
+    readMinutes: 1,
+  },
+  {
+    id: 'estimation-drives-design-decisions',
+    title: 'Estimation Should Change Your Design, Not Just Fill a Slide',
+    group: 'The Estimation Mindset',
+    definition: 'The point of the numbers is to justify a subsequent design choice (shard count, cache layer, CDN, async vs sync write) — an estimate that never gets referenced again in the interview was wasted effort.',
+    whyItMatters: [
+      "Interviewers notice when a candidate computes '50,000 QPS' and then never uses it to argue for load balancing, sharding, or caching later in the design",
+    ],
+    remember: [
+      "After computing a number, immediately state its design consequence: 'that's above what one DB instance handles comfortably, so we need to shard' or 'read:write ratio this skewed means caching pays off immediately'",
+      "If a number doesn't change any downstream decision, it probably wasn't worth spending interview time computing precisely",
+    ],
+    readMinutes: 1,
+  },
+]
+
+const sdIndexingConcepts: ConceptCard[] = [
+  {
+    id: 'sd-idx-btree-vs-hash',
+    title: 'B-Tree vs Hash Index',
+    group: 'Index Fundamentals',
+    definition: 'B-tree indexes keep keys sorted and support equality, range, and prefix lookups in O(log n); hash indexes map a key to a bucket in O(1) but only support exact-match equality.',
+    whyItMatters: [
+      "A hash index can't serve `ORDER BY`, `BETWEEN`, `<`/`>`, or `LIKE 'prefix%'` — the sort order simply isn't stored",
+      'Most relational engines default every index to a B-tree because range queries and sorting are common; hash indexes are a deliberate opt-in for pure equality lookups (e.g. a session-token cache table)',
+    ],
+    remember: [
+      'B-tree cost is O(log n) for both equality and range; hash is O(1) average but equality-only',
+      'Postgres hash indexes exist but are rarely chosen over B-tree unless the column is equality-only and very high cardinality',
+    ],
+    interviewAngle: {
+      q: "Why don't databases just default to hash indexes everywhere, since O(1) beats O(log n)?",
+      a: "Because hash indexes can't answer range or sort queries at all, and most real query patterns eventually need one — a B-tree's log n cost is a small price for staying general-purpose.",
+    },
+    related: ['sd-idx-selectivity', 'sd-idx-composite-ordering'],
+    readMinutes: 2,
+  },
+  {
+    id: 'sd-idx-composite-ordering',
+    title: 'Composite Index Column Ordering',
+    group: 'Index Fundamentals',
+    definition: 'A multi-column index is only usable left-to-right (the leftmost-prefix rule) — it serves queries that filter on a prefix of its columns in order, not any subset.',
+    whyItMatters: [
+      "An index on (tenant_id, status, created_at) serves queries filtering on tenant_id alone, or tenant_id+status, or all three — but a query filtering only on status or created_at can't use it at all",
+      'Column order should follow query shape, not table definition order: put the highest-selectivity equality filter first, range/sort columns last',
+    ],
+    example: {
+      code: {
+        language: 'sql',
+        code: `CREATE INDEX idx_orders ON orders (tenant_id, status, created_at);
+
+-- uses the index (prefix match):
+SELECT * FROM orders WHERE tenant_id = 5 AND status = 'PENDING';
+
+-- cannot use it (skips leftmost column):
+SELECT * FROM orders WHERE status = 'PENDING';`,
+      },
+      note: 'The second query still runs — it just falls back to a full scan (or a different, worse index) because the leading column is missing.',
+    },
+    remember: [
+      'Leftmost-prefix rule: an index on (a, b, c) can serve WHERE a=?, WHERE a=? AND b=?, or all three — never b or c alone',
+      'One well-ordered composite index often replaces several single-column indexes, and lets the planner avoid an extra sort for ORDER BY on the trailing column',
+    ],
+    interviewAngle: {
+      q: 'You have an index on (tenant_id, status, created_at). A query filters on status and created_at but not tenant_id. Does it use the index?',
+      a: "No — the leftmost column (tenant_id) is missing from the filter, so the engine can't use the index's sort order at all and falls back to a scan.",
+    },
+    related: ['sd-idx-btree-vs-hash', 'sd-idx-covering'],
+    readMinutes: 2,
+  },
+  {
+    id: 'sd-idx-covering',
+    title: 'Covering Index',
+    group: 'Index Fundamentals',
+    definition: 'An index that includes every column a query needs lets the engine answer entirely from the index, skipping the extra lookup into the underlying table (heap/clustered) row.',
+    whyItMatters: [
+      'A normal (non-covering) index still costs a second I/O per matched row to fetch the rest of the columns from the table — a covering index turns that into a single index-only scan',
+      'Adding "included" columns to widen an index for coverage is a common, cheap win on hot read paths, but it grows the index and adds more write overhead',
+    ],
+    remember: [
+      "Postgres: extra columns via INCLUDE; SQL Server: INCLUDE; MySQL/InnoDB: covering happens naturally if the secondary index's columns plus the primary key satisfy the query",
+      "Only worth it for genuinely hot, narrow queries — don't cover every query, it multiplies index bloat",
+    ],
+    interviewAngle: {
+      q: 'A dashboard query only ever selects order_id and total from a huge orders table filtered by status. How do you make it fast without touching the table at all?',
+      a: 'Build a covering index on (status) that includes order_id and total, so the query is answered entirely from the index — no heap lookup per row.',
+    },
+    related: ['sd-idx-composite-ordering', 'sd-idx-write-tradeoff'],
+    readMinutes: 2,
+  },
+  {
+    id: 'sd-idx-write-tradeoff',
+    title: 'The Read/Write Tradeoff of Indexes',
+    group: 'Index Tradeoffs',
+    definition: 'Every index accelerates reads that match it but must be updated on every INSERT, UPDATE, and DELETE that touches its columns, so more indexes means slower writes and more storage.',
+    whyItMatters: [
+      '"Just add an index" isn\'t free — a write-heavy table with ten indexes pays ten index maintenance costs per write, which shows up as write latency and replication lag',
+      'At system-design scale this is a real tradeoff decision: OLTP tables with heavy write volume should carry the minimum indexes that serve actual query patterns, not one per column',
+    ],
+    remember: [
+      'Index maintenance is proportional to write volume, not read volume — a table read constantly but written rarely can carry many indexes cheaply',
+      'This is why write-optimized systems (e.g. LSM-tree stores) defer/batch index updates instead of updating in place on every write',
+    ],
+    interviewAngle: {
+      q: 'A team adds an index to speed up every slow query they find. What breaks?',
+      a: 'Write throughput degrades and storage grows, because each new index adds maintenance cost to every insert/update/delete — indexing is a per-query tradeoff, not a universal fix.',
+    },
+    related: ['sd-idx-btree-vs-hash', 'sd-idx-selectivity'],
+    readMinutes: 2,
+  },
+  {
+    id: 'sd-idx-selectivity',
+    title: 'Selectivity & the Query Planner',
+    group: 'Index Tradeoffs',
+    definition: 'Selectivity is the fraction of rows a filter eliminates; the query planner ignores an index — even one that technically matches the query — when its selectivity is too low to beat a sequential scan.',
+    whyItMatters: [
+      "An index on a boolean or low-cardinality column (is_active, status with 3 values) rarely gets used, because scanning the index plus fetching most of the table's rows costs more than just scanning the table directly",
+      'This is a common "why isn\'t my index being used" production surprise — the index exists, is valid, and is simply the wrong choice for that data distribution',
+    ],
+    remember: [
+      'Rule of thumb: an index helps when a query matches a small fraction of rows (high selectivity); on a column where one value covers 50%+ of rows, expect a full scan instead',
+      'Stale table statistics can also cause a planner to pick the wrong plan even when selectivity is genuinely good — this is a maintenance/ops concern, not just schema design',
+    ],
+    interviewAngle: {
+      q: 'You add an index on a boolean is_deleted column but EXPLAIN shows a full table scan anyway. Why?',
+      a: 'Selectivity is too low — if most rows share the same boolean value, scanning the index plus fetching matching rows costs more than scanning the table directly, so the planner rationally skips the index.',
+    },
+    related: ['sd-idx-composite-ordering', 'sd-idx-write-tradeoff'],
+    readMinutes: 2,
+  },
+  {
+    id: 'sd-idx-denormalization',
+    title: 'Denormalization for Read Performance',
+    group: 'Read-Optimization Levers',
+    definition: 'Deliberately duplicating or precomputing data (e.g. storing a customer_name copy on the order row instead of joining) trades write complexity and consistency risk for avoiding expensive joins on the read path.',
+    whyItMatters: [
+      'At scale, joins across large tables (or across shards/services) get expensive or impossible — denormalization is a system-design lever, not a data-modeling mistake, when applied deliberately',
+      'The cost is real: every write path that touches the source of truth must also update the duplicate, or the duplicate drifts stale',
+    ],
+    remember: [
+      "Denormalization is the right call when reads vastly outnumber writes and joins are the bottleneck; it's the wrong call when consistency requirements are strict",
+      "Common patterns: duplicating a foreign row's display fields, precomputed aggregate counters (e.g. like_count on a post row), event-driven fan-out to read-optimized tables",
+    ],
+    interviewAngle: {
+      q: 'Why would a senior engineer deliberately duplicate data instead of normalizing it?',
+      a: 'Because at read-heavy scale, avoiding a join by duplicating a few display fields is often cheaper than paying join cost on every request — the tradeoff is owning the extra write-path complexity to keep the copy in sync.',
+    },
+    related: ['sd-idx-materialized-views', 'sd-idx-write-tradeoff'],
+    readMinutes: 2,
+  },
+  {
+    id: 'sd-idx-materialized-views',
+    title: 'Materialized Views',
+    group: 'Read-Optimization Levers',
+    definition: 'A materialized view stores the precomputed result of a query as a physical table, refreshed on a schedule or trigger, rather than recomputing it on every read.',
+    whyItMatters: [
+      "It's a different lever from manual denormalization: the database owns keeping the derived data in one place and refreshing it, instead of application code updating duplicate columns on every write",
+      "The tradeoff is staleness, not consistency risk from forgotten writes — a materialized view is only as fresh as its last refresh, whether that's periodic or incremental",
+    ],
+    remember: [
+      "Good fit for expensive aggregations/joins that don't need to reflect writes instantly (dashboards, reporting, leaderboards)",
+      'Refresh strategies matter: full refresh (simple, can lock/be slow) vs incremental refresh (fast, more complex to set up) vs trigger-based (near real-time, adds write overhead)',
+    ],
+    interviewAngle: {
+      q: 'How is a materialized view different from just denormalizing a column?',
+      a: "Denormalization pushes sync responsibility onto application write paths; a materialized view centralizes it in the database's own refresh mechanism, trading manual consistency risk for controlled staleness.",
+    },
+    related: ['sd-idx-denormalization'],
+    readMinutes: 2,
+  },
+  {
+    id: 'sd-idx-n-plus-one',
+    title: 'N+1 Queries at the Architecture Level',
+    group: 'Query Performance at Scale',
+    definition: 'An N+1 pattern fetches a list with one query, then issues one additional query (or service call) per item to fetch related data — turning a single request into N+1 round trips.',
+    whyItMatters: [
+      "It isn't only an ORM/lazy-loading problem — the same shape appears in microservices when a list endpoint calls another service once per item instead of batching, multiplying network round trips under load",
+      'The fix is always the same shape: batch the follow-up fetch (a single IN (...) query, a bulk/multi-get API, or a JOIN) instead of looping',
+    ],
+    remember: [
+      'Symptom: request latency scales linearly with result-set size, not with data volume — a red flag in APM traces showing repeated near-identical queries/calls',
+      'Common fixes: eager loading / JOIN FETCH, DataLoader-style batching, bulk API endpoints, or denormalizing the needed field onto the parent row',
+    ],
+    interviewAngle: {
+      q: "A product listing page's latency scales with the number of products shown, even though total product count barely changed. What's the likely cause?",
+      a: "N+1 pattern — the page is issuing one extra query or service call per product (e.g. to fetch each product's reviews) instead of batching them into a single call.",
+    },
+    related: ['sd-idx-pagination'],
+    readMinutes: 2,
+  },
+  {
+    id: 'sd-idx-pagination',
+    title: 'Pagination: Offset vs Cursor (Keyset)',
+    group: 'Query Performance at Scale',
+    definition: "Offset pagination (LIMIT/OFFSET) makes the database walk and discard all skipped rows on every page, so cost grows with page depth; cursor/keyset pagination filters on the last-seen key's value, keeping cost constant regardless of depth.",
+    whyItMatters: [
+      "OFFSET 100000 LIMIT 20 still has to scan (or index-walk) 100,000 rows before returning anything — deep pagination on a large table gets progressively slower, a classic scale surprise that doesn't show up in small dev datasets",
+      'Cursor pagination (WHERE created_at < :last_seen ORDER BY created_at LIMIT 20) uses an index seek instead of a scan-and-skip, so page N costs the same as page 1',
+    ],
+    example: {
+      code: {
+        language: 'sql',
+        code: `-- offset: cost grows with page depth
+SELECT * FROM events ORDER BY id LIMIT 20 OFFSET 100000;
+
+-- cursor/keyset: constant cost, needs a stable sort key
+SELECT * FROM events WHERE id > 100000 ORDER BY id LIMIT 20;`,
+      },
+    },
+    remember: [
+      "Offset pagination's one real advantage: it supports jumping to an arbitrary page number; cursor pagination only supports next/previous relative to a position",
+      'Cursor pagination needs a unique, stable, indexed sort key (or a tuple of one) — a non-unique key can skip or repeat rows across pages',
+    ],
+    interviewAngle: {
+      q: 'Why does page 500 of an admin table load noticeably slower than page 1, and how do you fix it without changing the page size?',
+      a: "OFFSET forces the database to walk past all skipped rows before returning results, so cost grows with page depth; switching to cursor/keyset pagination — filtering on the last-seen key instead of counting offsets — keeps every page's cost constant.",
+    },
+    related: ['sd-idx-n-plus-one'],
+    readMinutes: 2,
+  },
+  {
+    id: 'sd-idx-fulltext-search',
+    title: 'Full-Text Search Index vs Relational Index',
+    group: 'Query Performance at Scale',
+    definition: "A full-text search engine (Elasticsearch, Postgres GIN/tsvector) builds an inverted index — token to list of documents — to answer relevance-ranked, fuzzy, and multi-field text queries that a B-tree fundamentally can't serve efficiently.",
+    whyItMatters: [
+      "A B-tree index can accelerate LIKE 'prefix%' but not LIKE '%term%' or ranked relevance — matching a substring anywhere in text, or scoring by relevance, needs tokenization and an inverted index structure, not a sorted tree",
+      'At system-design scale, free-text search is usually pulled out into a dedicated search index/service (often fed by CDC or an outbox from the source-of-truth database) rather than forced into the primary relational store',
+    ],
+    remember: [
+      'Inverted index = token to document-list mapping, the same core structure behind Elasticsearch, Postgres full-text search, and Lucene',
+      'Tradeoff: a separate search index adds an eventual-consistency lag between the source of truth and search results, plus another system to operate',
+    ],
+    interviewAngle: {
+      q: "Why can't you just throw a B-tree index at a `description LIKE '%keyword%'` search and call it done?",
+      a: 'A B-tree only accelerates prefix matches, not substring or relevance-ranked search — that needs a tokenized inverted index, which is why full-text search gets a dedicated index structure (or engine) instead.',
+    },
+    related: ['sd-idx-btree-vs-hash'],
+    readMinutes: 2,
+  },
+]
+
+const sdTransactionsConcepts: ConceptCard[] = [
+  {
+    id: 'two-phase-commit-mechanics',
+    title: 'Two-Phase Commit (2PC)',
+    group: 'Two-Phase Commit',
+    definition: 'A coordinator asks every participant to prepare (lock resources, vote yes/no) in phase one, then only commits or aborts across all participants in phase two once every vote is in.',
+    whyItMatters: [
+      'It gives real atomicity across independent databases (all commit or all abort), which is why it existed before microservices made it impractical',
+    ],
+    example: {
+      code: {
+        language: 'text',
+        code: `Phase 1 (prepare/vote):
+coordinator -> A: prepare
+coordinator -> B: prepare
+A -> coordinator: yes (locked, logged)
+B -> coordinator: yes (locked, logged)
+
+Phase 2 (commit):
+coordinator -> A: commit
+coordinator -> B: commit`,
+      },
+      note: "Every participant holds its locks from the moment it votes yes until the coordinator's phase-2 message arrives — that window is the whole problem.",
+    },
+    remember: [
+      'A single no vote (or timeout) in phase one aborts everyone — 2PC trades throughput for atomicity',
+      "3PC adds a third phase to shrink the blocking window but is essentially unused in practice — it still can't survive a network partition, just a plain coordinator crash",
+      'XA is the classic standard implementing 2PC across heterogeneous resources (JMS + JDBC in one transaction, e.g. via JTA)',
+    ],
+    diagram: `flowchart LR
+  C[Coordinator] --> A[Prepare A]
+  C --> B[Prepare B]
+  A --> C
+  B --> C
+  C --> D[Commit All]`,
+    readMinutes: 2,
+    related: ['two-phase-commit-blocking-problem', 'saga-pattern-overview'],
+  },
+  {
+    id: 'two-phase-commit-blocking-problem',
+    title: 'Why 2PC Is Rarely Used in Practice',
+    group: 'Two-Phase Commit',
+    definition: "If the coordinator crashes after participants vote yes but before it sends commit/abort, every participant is stuck holding locks indefinitely — it can't unilaterally commit or abort without risking disagreement with the others.",
+    whyItMatters: [
+      'This is a blocking protocol, not just a slow one — a single coordinator failure can freeze resources across every participating service until a human or a recovery log intervenes',
+      "It also requires every participant to be reachable and synchronously locked for the whole exchange, which doesn't fit microservices where a call might cross a queue or an unreliable network",
+    ],
+    remember: [
+      'The failure mode isn\'t "transaction fails" — it\'s "transaction hangs," which is worse for availability than a clean abort',
+      'This is the direct reason the industry moved to sagas: give up atomicity, keep availability, use compensation instead of blocking',
+    ],
+    interviewAngle: {
+      q: 'What specifically makes 2PC a blocking protocol?',
+      a: "A participant that has voted yes is contractually obligated to commit if told to, so it can't time out and unilaterally decide — if the coordinator is gone, it just waits, holding its locks, until the coordinator recovers or a human intervenes.",
+    },
+    readMinutes: 2,
+    related: ['two-phase-commit-mechanics', 'saga-pattern-overview'],
+  },
+  {
+    id: 'saga-pattern-overview',
+    title: 'Saga Pattern',
+    group: 'Saga Pattern',
+    definition: 'A sequence of local transactions, each in its own service, where every step has a matching compensating action to undo it if a later step fails — trading atomicity for availability and no cross-service locking.',
+    whyItMatters: [
+      'It\'s the microservices-era answer to "I need a multi-service transaction" without holding locks across a network for the duration of the whole flow',
+    ],
+    remember: [
+      "The system is only eventually consistent during the saga — there's a window where step 1 committed but step 3 hasn't run yet",
+      'A saga guarantees the flow eventually reaches a consistent end state (all steps done, or all compensated) — it does not guarantee isolation from other transactions in between',
+    ],
+    readMinutes: 2,
+    related: [
+      'two-phase-commit-blocking-problem',
+      'compensating-transactions',
+      'saga-choreography-vs-orchestration',
+    ],
+  },
+  {
+    id: 'saga-choreography-vs-orchestration',
+    title: 'Choreography vs Orchestration',
+    group: 'Saga Pattern',
+    definition: 'Choreography has each service publish events that the next service reacts to with no central controller; orchestration has a dedicated orchestrator service explicitly telling each participant what to do next and tracking saga state.',
+    whyItMatters: [
+      'Choreography stays decoupled but the overall flow lives only implicitly across every service\'s event handlers — debugging "why didn\'t step 4 run" means tracing events through N services',
+      'Orchestration centralizes the flow in one place (easy to visualize, retry, and test) but that orchestrator becomes a coupling point and a single service that needs to know about every participant',
+    ],
+    remember: [
+      'Choreography scales better to a small number of steps with low coordination complexity; orchestration wins once the saga has branching logic, timeouts, or more than ~4-5 steps',
+      "Orchestration doesn't reintroduce the 2PC blocking problem — the orchestrator tracks state and issues compensations, it never holds cross-service locks",
+    ],
+    readMinutes: 2,
+    related: ['saga-pattern-overview', 'compensating-transactions'],
+  },
+  {
+    id: 'compensating-transactions',
+    title: "Compensating Transactions Aren't Rollback",
+    group: 'Saga Pattern',
+    definition: "A compensating transaction is a separate, explicitly-written operation that semantically undoes a committed step's business effect — it cannot rely on database rollback because the original step already committed and may have been observed by other parts of the system.",
+    whyItMatters: [
+      '"Refund the payment" is not the same as "undo the charge" — by the time you compensate, the charge may already be reflected in a statement, a fraud check, or a downstream report',
+      "Compensations must themselves be designed to be retried safely (idempotent) and must handle the case where the step they're undoing never actually completed",
+    ],
+    remember: [
+      "Not every step is compensatable — sending a confirmation email can't be un-sent, so sagas often reorder steps to put irreversible actions last",
+      "Compensating transactions run forward in time (new operations), never backward — there's no implicit undo log across services the way there is inside one database",
+    ],
+    readMinutes: 2,
+    related: ['saga-pattern-overview', 'saga-lack-of-isolation'],
+  },
+  {
+    id: 'saga-lack-of-isolation',
+    title: 'Sagas Have No Isolation',
+    group: 'Saga Pattern',
+    definition: 'Because each step commits independently and immediately, other transactions can read partially-completed saga state before a later step runs or a compensation fires — sagas give up the I in ACID entirely.',
+    whyItMatters: [
+      'A concrete anomaly: an order saga reserves inventory in step 1; before payment fails and step 1 compensates, a completely unrelated request sees that inventory as unavailable and routes around it — a dirty read of in-progress state',
+      'This is why sagas are usually paired with mitigations rather than solved outright: semantic locks (mark the record "pending" and have readers treat that specially), commutative updates (reserve/release as deltas, not absolute writes), or accepting the anomaly as a rare, tolerable cost',
+    ],
+    remember: [
+      'This is the real tradeoff sagas make versus 2PC — not just availability vs atomicity, but isolation vs availability too',
+      '"Eventually consistent" undersells it — during the window, the intermediate state is actively visible and actionable by other transactions, not just stale',
+    ],
+    readMinutes: 2,
+    related: ['compensating-transactions', 'saga-pattern-overview'],
+  },
+  {
+    id: 'consensus-quorum-agreement',
+    title: 'Consensus & Quorum Agreement',
+    group: 'Consensus Algorithms',
+    definition: 'A consensus algorithm (Paxos, Raft) lets a cluster of nodes agree on a single value or ordering of operations even when some nodes crash or messages are delayed, by requiring any accepted decision to be acknowledged by a majority quorum rather than every node.',
+    whyItMatters: [
+      'Requiring a majority (N/2 + 1) rather than unanimity is what makes progress possible despite failures — a 5-node cluster keeps working with 2 nodes down because 3 still form a majority',
+      'This is the mechanism underneath things engineers use daily without naming it: ZooKeeper/etcd leader election, Kafka controller election, Raft-based config stores',
+    ],
+    remember: [
+      'A cluster of 2f+1 nodes tolerates f failures — this is why cluster sizes are odd numbers (3, 5, 7), not because of any other constraint',
+      'Consensus solves "agree on one value despite failures," not "stay available during a network partition" — a minority partition correctly refuses to make progress rather than risk a split-brain decision',
+    ],
+    readMinutes: 2,
+    related: ['raft-leader-election-log-replication', 'two-phase-commit-blocking-problem'],
+  },
+  {
+    id: 'raft-leader-election-log-replication',
+    title: 'Raft: Leader Election & Log Replication',
+    group: 'Consensus Algorithms',
+    definition: 'Raft elects a single leader per term to serialize all writes into a replicated log; followers replicate that log and only acknowledge an entry as committed once a majority has stored it, so a leader crash just triggers a new election with no data loss on committed entries.',
+    whyItMatters: [
+      "Raft was explicitly designed to be understandable (vs Paxos's notoriously hard-to-implement correctness proof) by splitting the problem into leader election, log replication, and safety as separate, named subproblems",
+    ],
+    example: {
+      code: {
+        language: 'text',
+        code: `term 4: leader L4 crashes mid-replication
+followers time out -> start election for term 5
+candidate requests votes; needs majority
+new leader L5 elected, resumes replicating
+entries only committed under L4 with majority acks survive`,
+      },
+      note: 'The monotonically increasing term number is how followers detect and reject messages from a stale, previously-crashed leader that comes back.',
+    },
+    remember: [
+      'A candidate only wins with votes from a majority, and a voter only votes for a candidate whose log is at least as up to date as its own — this prevents an out-of-date node from becoming leader and silently losing committed data',
+      '"Committed" means acknowledged by a majority, not by the leader alone — a leader can crash before telling followers an entry is committed, and the next leader re-derives that from the logs it can see',
+    ],
+    readMinutes: 2,
+    related: ['consensus-quorum-agreement'],
+  },
+  {
+    id: 'transactional-outbox-pattern',
+    title: 'Transactional Outbox Pattern',
+    group: 'Outbox Pattern',
+    definition: 'Instead of writing to a database and separately publishing an event (which can fail between the two steps), the service writes the business row and an outbox row for the event in the same local database transaction, then a separate relay process publishes outbox rows to the broker.',
+    whyItMatters: [
+      '"Update DB, then publish to Kafka" has an unavoidable gap — if the process crashes after the commit but before the publish, the event is silently lost with no way to know it happened',
+      'The outbox turns a dual-write problem (DB + broker, no shared transaction) into a single-write problem (DB only) plus an at-least-once relay, which is a solvable problem',
+    ],
+    example: {
+      code: {
+        language: 'sql',
+        code: `BEGIN;
+UPDATE orders SET status = 'PLACED' WHERE id = 42;
+INSERT INTO outbox (id, aggregate_id, type, payload)
+  VALUES (gen_uuid(), 42, 'OrderPlaced', '{...}');
+COMMIT;`,
+      },
+      note: "Both writes commit or abort together because they're one local ACID transaction — the event's existence is now as durable as the order row itself.",
+    },
+    remember: [
+      "The relay delivers at-least-once, never exactly-once — downstream consumers still need to dedupe (idempotent consumers), the outbox just guarantees the event isn't lost, not that it's delivered once",
+    ],
+    diagram: `flowchart LR
+  App[Service] --> DB[Orders and Outbox]
+  DB --> Relay[Relay]
+  Relay --> Broker[Message Broker]`,
+    readMinutes: 2,
+    related: ['outbox-relay-mechanics'],
+  },
+  {
+    id: 'outbox-relay-mechanics',
+    title: 'Outbox Relay: CDC vs Polling',
+    group: 'Outbox Pattern',
+    definition: "The relay that drains outbox rows to the broker is built either as a poller (a job that periodically selects unpublished rows and marks them sent) or via change-data-capture (a tool like Debezium tailing the database's write-ahead/binlog and streaming outbox inserts directly).",
+    whyItMatters: [
+      'Polling is simple to build and reason about but adds latency (poll interval) and load (repeated queries) proportional to how fresh you need events to be',
+      "CDC gets near-real-time delivery straight off the log with near-zero query load on the primary, but it's operationally heavier — another component (Debezium/Kafka Connect) to run, monitor, and version",
+    ],
+    remember: [
+      "Both approaches still only deliver at-least-once — CDC reading the log doesn't remove the need for consumer-side dedup, it just changes how fast and how expensively you get the event out",
+    ],
+    readMinutes: 2,
+    related: ['transactional-outbox-pattern'],
+  },
+]
+
+const sdEventDrivenConcepts: ConceptCard[] = [
+  {
+    id: 'event-sourcing-core',
+    title: 'Event Sourcing: State as an Event Log',
+    group: 'Event Sourcing',
+    definition: 'Instead of persisting only the current state of an entity, event sourcing persists the full ordered sequence of state-changing events, and current state is derived by replaying them.',
+    whyItMatters: [
+      "Gives a complete, immutable audit trail for free — you can answer 'what was the balance at 3pm last Tuesday' by replaying up to that point",
+      'Enables rebuilding entirely new read models later from history you already have, without a migration touching production data',
+    ],
+    example: {
+      code: {
+        language: 'text',
+        code: `AccountOpened
+FundsDeposited(100)
+FundsWithdrawn(30)
+-> replay -> balance = 70`,
+      },
+      note: 'The stored fact is what happened, not the number 70 — 70 is a derived, disposable view.',
+    },
+    remember: [
+      'Events are immutable and append-only — you never edit or delete a past event, you append a compensating one',
+      'Current state is a cache of the replay, not the source of truth',
+    ],
+    interviewAngle: {
+      q: 'Why is event sourcing harder to query than a normal table?',
+      a: "There's no 'current state' table to SELECT from directly — every read requires either replaying events or maintaining a separately-updated projection, which is exactly what pushes event-sourced systems toward CQRS.",
+    },
+    related: ['cqrs-core', 'event-replay-versioning', 'snapshotting'],
+    readMinutes: 2,
+  },
+  {
+    id: 'snapshotting',
+    title: 'Snapshotting to Bound Replay Cost',
+    group: 'Event Sourcing',
+    definition: "A snapshot is a periodic materialized copy of an entity's state at a given event version, so rehydration replays only events after the snapshot instead of from the beginning of time.",
+    whyItMatters: [
+      'Without it, an entity with millions of events (a long-lived order, a years-old account) takes longer and longer to load as history grows',
+    ],
+    remember: [
+      'Snapshots are a performance optimization, not a second source of truth — the event log must remain authoritative and reconstructable without them',
+      'Snapshot cadence is a tradeoff: too frequent wastes storage/write cost, too sparse defeats the purpose',
+    ],
+    related: ['event-sourcing-core'],
+    readMinutes: 1,
+  },
+  {
+    id: 'event-replay-versioning',
+    title: 'Event Schema Evolution & Replay',
+    group: 'Event Sourcing',
+    definition: 'Because past events are immutable and replayed indefinitely, every consumer of the event stream must keep being able to deserialize old event shapes even as the schema evolves.',
+    whyItMatters: [
+      "You can't do a normal 'migrate the table' schema change — old events already exist forever and will be replayed by every future rebuild",
+    ],
+    remember: [
+      'Only additive, backward-compatible changes are safe in place (new optional fields); renaming or removing a field breaks every past event of that type',
+      'A real schema change usually means upcasting old event versions into new ones at read time, or emitting a new event type and treating the old one as deprecated but still replayable',
+    ],
+    interviewAngle: {
+      q: "You need to rename a field on an event type that already has 2 years of history. What's the risk of just renaming it?",
+      a: "Every already-stored event still has the old field name, so any replay (rebuild, new consumer, debugging) breaks unless you add an upcasting/translation layer that maps old shapes to the new one — you can't retroactively rewrite immutable history.",
+    },
+    related: ['event-sourcing-core'],
+    readMinutes: 2,
+  },
+  {
+    id: 'cqrs-core',
+    title: 'CQRS: Splitting Command and Query Models',
+    group: 'CQRS',
+    definition: 'CQRS separates the model that handles writes (commands, validated against business rules) from the model(s) that handle reads (denormalized projections optimized purely for query shape).',
+    whyItMatters: [
+      'Lets the write side stay normalized and consistent while the read side is shaped exactly for each query pattern (or even a different database entirely, like Elasticsearch for search)',
+    ],
+    example: {
+      code: {
+        language: 'text',
+        code: `Command: PlaceOrder -> validated, appended as event
+Projection: OrderSummaryView -> updated async from events, is what the UI queries`,
+      },
+      note: 'The command side never gets queried directly by the UI in a strict CQRS setup — the projection is.',
+    },
+    remember: [
+      "CQRS doesn't require event sourcing, but event sourcing almost always ends up needing CQRS, because the event log alone is a poor query target",
+      'You can have multiple read projections from the same write model, each tuned for a different access pattern',
+    ],
+    interviewAngle: {
+      q: 'Does CQRS mean two separate databases?',
+      a: "Not necessarily — it can be two models against the same database, but the pattern gets its biggest payoff when the read store is a different, query-optimized technology built from the write side's events.",
+    },
+    related: ['event-sourcing-core', 'cqrs-consistency-lag'],
+    diagram: `flowchart LR
+  Cmd[Command] --> Write[Write Model]
+  Write --> Events[Event Stream]
+  Events --> Proj[Read Projection]
+  Query[Query] --> Proj`,
+    readMinutes: 2,
+  },
+  {
+    id: 'cqrs-consistency-lag',
+    title: 'Projection Lag Is User-Visible Eventual Consistency',
+    group: 'CQRS',
+    definition: "Read projections update asynchronously from the write side's events, so there is a real window where a just-written change isn't yet reflected in what queries return.",
+    whyItMatters: [
+      "This is the single biggest practical objection to CQRS in a UI: 'I just saved this, why doesn't it show up yet' is a support ticket, not a bug",
+    ],
+    remember: [
+      'Common mitigations: read-your-writes by routing the immediate post-write read to the write model or command result, optimistic UI updates, or exposing a projection version/watermark the client can poll against',
+      'The lag is a genuine tradeoff for read-side scalability and shape flexibility — eliminating it usually means giving those benefits back',
+    ],
+    interviewAngle: {
+      q: 'A user submits a form and the very next screen shows stale data. How do you fix it without giving up CQRS?',
+      a: "Don't route that immediate read through the async projection — return the confirmation from the command handler itself (or the just-written aggregate state), and let the projection catch up for subsequent reads.",
+    },
+    related: ['cqrs-core'],
+    readMinutes: 2,
+  },
+  {
+    id: 'event-carried-state-transfer',
+    title: 'Event-Carried State Transfer (Fat Events)',
+    group: 'Event Payload Design',
+    definition: 'A fat event embeds all the data a consumer needs to act, so downstream services can maintain their own local copy of relevant state without calling back to the source service.',
+    whyItMatters: [
+      'Removes the runtime coupling and cascading-failure risk of consumers synchronously calling back to the producer for details',
+    ],
+    remember: [
+      "Tradeoff: every consumer's local copy can drift out of sync if it misses or mishandles an event, and payload size/schema surface grows",
+      'Best when consumers genuinely need to own a local, queryable copy of the data (e.g. a search index, a denormalized read model)',
+    ],
+    related: ['event-notification', 'choreography-coupling'],
+    readMinutes: 2,
+  },
+  {
+    id: 'event-notification',
+    title: 'Event Notification (Thin Events)',
+    group: 'Event Payload Design',
+    definition: 'A thin event just announces that something happened (an ID and a type) and expects interested consumers to call back to the source for details if they need them.',
+    whyItMatters: [
+      'Keeps the event contract minimal and stable, and keeps the source service as the single place that data is ever fetched from',
+    ],
+    remember: [
+      'Tradeoff: reintroduces synchronous coupling and load on the source service at exactly the moment many consumers react to the same event',
+      'Choosing fat vs thin is really choosing where you want the coupling to live: in the event schema (fat) or in a runtime callback (thin)',
+    ],
+    interviewAngle: {
+      q: 'When would you deliberately choose thin events over fat ones?',
+      a: 'When the data is large, sensitive, or changes shape often — keeping only an ID in the event avoids replicating a wide, volatile, or access-controlled payload to every consumer that only occasionally needs it.',
+    },
+    related: ['event-carried-state-transfer'],
+    readMinutes: 1,
+  },
+  {
+    id: 'choreography-coupling',
+    title: "Choreography's Hidden Coupling via Event Schemas",
+    group: 'Choreography Risks',
+    definition: "In choreography-based event-driven systems there's no central orchestrator, but every service publishing or consuming a shared event schema is still coupled to that schema's shape and meaning — just implicitly instead of via a direct call.",
+    whyItMatters: [
+      "Because there's no explicit call graph, this coupling is invisible in code and org charts until someone changes an event field and three unrelated teams' consumers break in production",
+    ],
+    remember: [
+      'Choreography trades explicit, traceable coupling (a REST call you can grep for) for implicit, contract-level coupling (a shared event shape nobody centrally owns)',
+      'Without a schema registry, compatibility rules (e.g. Avro/Protobuf backward-compat checks), and consumer-driven contract tests, this coupling only surfaces as an incident',
+    ],
+    interviewAngle: {
+      q: "Choreography is pitched as 'loosely coupled' — where does the coupling actually go?",
+      a: "It moves from the call graph into the event schema and the implicit business-process ordering assumptions each consumer makes about when and in what sequence events arrive — that's often harder to see and reason about than a direct dependency.",
+    },
+    related: ['event-carried-state-transfer', 'orchestration-vs-choreography-tradeoff'],
+    readMinutes: 2,
+  },
+  {
+    id: 'orchestration-vs-choreography-tradeoff',
+    title: 'Choreography vs Orchestration Tradeoff',
+    group: 'Choreography Risks',
+    definition: 'Choreography lets each service react to events independently with no central coordinator; orchestration puts a single service in charge of driving each step of a multi-service workflow explicitly.',
+    whyItMatters: [
+      'Choreography scales team autonomy and avoids a single point of workflow logic, but makes the end-to-end process flow hard to see, test, and debug as a whole',
+    ],
+    remember: [
+      'Orchestration centralizes visibility and error handling for a workflow at the cost of coupling every participant to an orchestrator and its availability',
+      'A common real-world compromise: choreography for wide, low-coordination fan-out; orchestration (e.g. a saga coordinator) for workflows with strict ordering, compensation, or SLA requirements',
+    ],
+    related: ['choreography-coupling'],
+    diagram: `flowchart LR
+  Order[Order Placed] --> Inv[Inventory Service]
+  Order --> Pay[Payment Service]
+  Pay --> Ship[Shipping Service]`,
+    readMinutes: 2,
+  },
+  {
+    id: 'stream-windowing',
+    title: 'Windowing in Stream Processing',
+    group: 'Stream Processing',
+    definition: 'A window groups an unbounded event stream into finite chunks (by time, count, or session gaps) so aggregations like counts or sums can be computed over it.',
+    whyItMatters: [
+      "An unbounded stream has no natural 'end' to aggregate over — windowing is what makes 'requests per minute' or 'session total' a computable, bounded question",
+    ],
+    remember: [
+      'Tumbling windows: fixed, non-overlapping (every 1 minute). Sliding windows: fixed size but overlapping (last 5 minutes, updated every 1 minute). Session windows: bounded by a gap of inactivity, not a fixed clock',
+      'Late-arriving events (network delay, clock skew) force a choice: drop them, use a watermark/grace period to wait, or emit a corrected late update',
+    ],
+    interviewAngle: {
+      q: "Why can't you just say 'count events per minute' without more design?",
+      a: 'You have to decide the window type (tumbling vs sliding vs session), how long to wait for late/out-of-order events before finalizing a window (the watermark), and what happens to data that arrives after that — those decisions change the answer, not just the implementation.',
+    },
+    related: ['stateful-stream-processing', 'processing-semantics'],
+    readMinutes: 2,
+  },
+  {
+    id: 'stateful-stream-processing',
+    title: 'Stateful Stream Processing',
+    group: 'Stream Processing',
+    definition: 'A stateful stream processor keeps running state (running totals, joins, dedup sets) per key across events, rather than transforming each event independently.',
+    whyItMatters: [
+      'Most real streaming use cases — fraud scoring, running aggregates, stream-stream joins — need memory of prior events, not just per-event transforms',
+    ],
+    remember: [
+      'State is usually kept in a local embedded store (e.g. RocksDB) per processing instance, checkpointed periodically to durable storage so a crashed instance can recover its state instead of losing it',
+      'Rescaling a stateful job (adding/removing instances) means repartitioning that state, which is far more expensive than rescaling a stateless one',
+    ],
+    related: ['stream-windowing', 'processing-semantics'],
+    readMinutes: 2,
+  },
+  {
+    id: 'processing-semantics',
+    title: 'At-Least-Once vs Exactly-Once Processing',
+    group: 'Stream Processing',
+    definition: "At-least-once guarantees every event is processed but permits duplicates on failure/retry; exactly-once guarantees each event's effect is applied precisely once despite failures.",
+    whyItMatters: [
+      "Exactly-once is what people actually want intuitively, but it's the hardest and most expensive guarantee to provide, and 'exactly-once' in most real systems means exactly-once *effect*, not literally-once delivery",
+    ],
+    remember: [
+      'True exactly-once effect is achieved by combining at-least-once delivery with idempotent writes or transactional/atomic commit of (input offset, state update, output) together — not by preventing duplicate delivery outright',
+      "Kafka Streams' 'exactly-once semantics' works this way: it atomically commits consumer offsets with produced output using transactions, not by guaranteeing no redelivery ever happens",
+    ],
+    interviewAngle: {
+      q: "A teammate says 'we can't guarantee exactly-once because TCP can redeliver.' Is that the right framing?",
+      a: "Exactly-once processing isn't about preventing redelivery at the network/broker level — it's about making the processing idempotent or transactional so that redelivered duplicates produce the same end state as a single delivery, which is achievable even though at-least-once delivery underneath is not.",
+    },
+    related: ['stateful-stream-processing'],
+    readMinutes: 2,
+  },
+]
+
+const sdRateLimitingConcepts: ConceptCard[] = [
+  {
+    id: 'token-bucket-vs-leaky-bucket',
+    title: 'Token Bucket vs Leaky Bucket',
+    group: 'Algorithms',
+    definition: 'Token bucket allows bursts up to the bucket size while averaging to a steady refill rate; leaky bucket forces a strictly constant output rate regardless of how bursty the input is.',
+    whyItMatters: [
+      'Token bucket suits APIs where a client legitimately needs to burst (page load firing 20 requests at once) as long as the long-run average stays under limit',
+      'Leaky bucket suits protecting a downstream resource that genuinely cannot tolerate bursts (a fixed-capacity queue or a rate-sensitive external API)',
+    ],
+    remember: [
+      'Token bucket: bucket holds up to N tokens, refills at rate R, each request consumes a token — burst capacity = bucket size',
+      'Leaky bucket: requests queue and drain at a fixed rate — smooths bursts into a steady trickle instead of permitting them',
+      'Token bucket is the far more common choice for public APIs because bursts are normal client behavior, not abuse',
+    ],
+    interviewAngle: {
+      q: 'Why do most public APIs use token bucket instead of leaky bucket?',
+      a: 'Because real clients burst (retries, page loads, batch UI actions) and token bucket tolerates that as long as the average obeys the limit; leaky bucket would reject or queue those legitimate bursts.',
+    },
+    diagram: `flowchart LR
+  A[Refill timer] --> B[Bucket]
+  C[Request] --> D{Token available}
+  B --> D
+  D -->|yes| E[Allow, consume token]
+  D -->|no| F[Reject 429]`,
+    readMinutes: 2,
+  },
+  {
+    id: 'fixed-window-counter',
+    title: 'Fixed Window Counter',
+    group: 'Algorithms',
+    definition: 'A fixed window counter resets a simple request count to zero at fixed clock boundaries (e.g. every minute), which is cheap but lets a client burst up to 2x the limit across a boundary.',
+    whyItMatters: [
+      'A client sending its full quota at 0:59 and full quota again at 1:00 gets 2x the intended limit through in under 2 seconds — the window boundary is the exploit',
+    ],
+    remember: [
+      'Cheapest algorithm to implement: one counter and a TTL per key',
+      'The boundary-burst problem is the classic gotcha interviewers probe for',
+    ],
+    related: ['sliding-window-counter'],
+    readMinutes: 1,
+  },
+  {
+    id: 'sliding-window-counter',
+    title: 'Sliding Window Log vs Sliding Window Counter',
+    group: 'Algorithms',
+    definition: "Sliding window log stores every request timestamp for exact accuracy at O(n) memory per key; sliding window counter approximates by weighting the previous window's count, trading a small accuracy error for O(1) memory.",
+    whyItMatters: [
+      "The log variant is precise but memory cost scales with request volume per key, which doesn't scale for high-traffic keys",
+      'The counter variant assumes uniform distribution of requests within the previous window, which is usually close enough for rate limiting but not exact',
+    ],
+    remember: [
+      'Sliding window counter formula: weight = overlap fraction with previous window; effectively interpolates between the two fixed windows',
+      'This is the algorithm most production rate limiters (e.g. many API gateways) actually implement — fixed window is too leaky, log is too expensive',
+    ],
+    related: ['fixed-window-counter'],
+    readMinutes: 2,
+  },
+  {
+    id: 'rate-limit-enforcement-point',
+    title: 'Where to Enforce: Client vs Gateway vs Service',
+    group: 'Enforcement & Architecture',
+    definition: 'Client-side limiting is a courtesy that a malicious or buggy client can simply ignore, so authoritative enforcement belongs at the API gateway, with additional per-service limits protecting specific expensive downstream resources.',
+    whyItMatters: [
+      'Gateway-level enforcement rejects abusive traffic before it costs any backend compute, and centralizes limit policy in one place instead of duplicating it per service',
+      'Per-service limits still matter for calls that originate inside the system (service-to-service) and never pass through the edge gateway at all',
+    ],
+    remember: [
+      'Client-side throttling improves UX (avoid firing requests you know will be rejected) but is never a security or capacity control',
+      'Gateway limiting is necessary but not sufficient — an internal service can still be overwhelmed by another internal service that bypasses the edge',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'rate-limit-key-design',
+    title: 'Rate Limit Key Design',
+    group: 'Enforcement & Architecture',
+    definition: 'What a limit is keyed on (IP, user ID, API key, or a composite) determines who actually gets throttled, and the wrong key either punishes innocent users or lets abuse through untouched.',
+    whyItMatters: [
+      'Per-IP limiting punishes every user behind a NAT or corporate proxy sharing one IP, and is trivially evaded with rotating IPs',
+      'Per-API-key or per-authenticated-user limiting is far more precise but requires the limiter to sit after authentication, which changes where in the request pipeline it can run',
+    ],
+    remember: [
+      'Unauthenticated endpoints (login, signup) can only key on IP or device fingerprint — this is why brute-force and credential-stuffing limits are inherently weaker there',
+      'Composite keys (user + endpoint) let you give one user different budgets for cheap reads vs expensive writes',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'distributed-rate-limiting',
+    title: 'Distributed Rate Limiting',
+    group: 'Distributed Systems',
+    definition: 'An in-memory counter is local to one instance, so behind a load balancer with N instances the effective limit becomes N times the intended value unless counter state is shared.',
+    whyItMatters: [
+      "Sharing state (typically Redis, using atomic INCR/EXPIRE or a Lua script for check-and-increment) fixes the correctness gap but adds a network round trip to every rate-limited request, and makes the rate limiter's availability a dependency of every request path it guards",
+    ],
+    remember: [
+      'Naive check-then-increment against shared state is a race condition under concurrent requests — needs an atomic operation (Redis Lua script or INCR+EXPIRE) not separate GET/SET calls',
+      'Redis becoming unavailable forces a choice: fail open (allow all traffic, risk overload) or fail closed (reject all traffic, risk false outage) — most production systems fail open with a local fallback limit',
+    ],
+    related: ['two-tier-rate-limiting'],
+    readMinutes: 2,
+  },
+  {
+    id: 'two-tier-rate-limiting',
+    title: 'Two-Tier (Local + Global) Rate Limiting',
+    group: 'Distributed Systems',
+    definition: 'Each instance enforces a cheap local approximate limit and periodically syncs with a shared global counter, cutting the round-trip cost of pure distributed limiting at the price of short-term overshoot.',
+    whyItMatters: [
+      'Hitting Redis on every single request adds latency and load proportional to total request volume; a local cache that syncs every second or so absorbs most of that cost',
+    ],
+    remember: [
+      'Overshoot is bounded by the sync interval and instance count — during that window, N instances can each independently allow up to their local slice',
+      'This is the standard tradeoff senior candidates are expected to name: exact global accuracy vs latency/load, and two-tier is the practical middle ground',
+    ],
+    related: ['distributed-rate-limiting'],
+    diagram: `flowchart LR
+  A[Client] --> B[Gateway instance]
+  B --> C{Local budget left}
+  C -->|yes| D[Allow]
+  C -->|no| E[Check Redis global counter]
+  B -.periodic sync.-> F[Redis]`,
+    readMinutes: 2,
+  },
+  {
+    id: 'load-shedding-priority',
+    title: 'Priority-Based Load Shedding',
+    group: 'Load Shedding',
+    definition: 'Under overload, load shedding drops a fraction of incoming requests deliberately, choosing which to drop by business priority rather than dropping indiscriminately or letting everything queue and time out.',
+    whyItMatters: [
+      'Indiscriminate overload degrades every request equally (including checkout, health checks, and paying customers), while priority shedding protects the requests that matter most by sacrificing lower-value ones (search autocomplete, recommendations) first',
+    ],
+    remember: [
+      'Shedding must happen early — at the edge or load balancer — before a request has consumed CPU, DB connections, or downstream capacity; shedding after doing the work wastes the resources you were trying to protect',
+      'Requires requests to carry or be classifiable by a priority signal (endpoint, header, user tier) that the shedding layer can act on',
+    ],
+    related: ['load-shedding-by-cost'],
+    readMinutes: 2,
+  },
+  {
+    id: 'load-shedding-by-cost',
+    title: 'Shedding by Request Cost, Not Just Count',
+    group: 'Load Shedding',
+    definition: 'A limiter that only counts requests treats a trivial GET and an expensive aggregation query identically, so systems with wildly varying request cost need to shed or limit by estimated resource cost instead of raw count.',
+    whyItMatters: [
+      'A count-based limit that lets through 100 cheap requests also lets through 100 expensive ones, which can overload the backend even while technically staying under the configured limit',
+      'GraphQL APIs are the canonical example — query complexity/depth scoring assigns a cost per query so the limiter can reject or shed disproportionately expensive ones independently of request count',
+    ],
+    remember: [
+      'Cost can be estimated statically (query complexity score, payload size) or tracked historically (this endpoint averages 200ms of DB time)',
+      "This is strictly harder to implement than count-based limiting and usually only justified once count-based limits demonstrably aren't protecting the backend",
+    ],
+    related: ['load-shedding-priority'],
+    readMinutes: 2,
+  },
+  {
+    id: 'backpressure-vs-rate-limiting',
+    title: 'Backpressure vs Rate Limiting/Shedding',
+    group: 'Load Shedding',
+    definition: 'Rate limiting and load shedding reject excess work outright, while backpressure is a signal that flows back to the producer telling it to slow down, letting the producer decide how to react instead of dropping work.',
+    whyItMatters: [
+      "Backpressure is native to pull-based or flow-controlled systems (a bounded queue, reactive streams, TCP flow control, a consumer signaling a producer to slow down) — it's cooperative rather than adversarial",
+      "Rate limiting assumes the caller might not cooperate (or isn't even the same team), so it must be enforceable unilaterally; backpressure assumes the producer will honor the signal",
+    ],
+    remember: [
+      "A bounded queue rejecting new work once full is load shedding; that same queue's depth being reported back so the producer throttles itself is backpressure",
+      "They're complementary, not interchangeable — an internal pipeline typically wants backpressure between its own stages, and rate limiting/shedding at its external boundary",
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'retry-after-contract',
+    title: '429 Response Contract & Backoff Etiquette',
+    group: 'Client Contract',
+    definition: 'A well-formed 429 response includes a Retry-After header telling the client how long to wait, and a well-behaved client honors it with exponential backoff plus jitter rather than retrying immediately.',
+    whyItMatters: [
+      'Retry-After (seconds or an HTTP date) lets the server communicate its own recovery estimate instead of the client guessing',
+      'Fixed-interval retries from many clients synchronize into a thundering herd that re-triggers the same overload the limiter just relieved; jitter spreads retries out over time',
+    ],
+    remember: [
+      "Server side: set Retry-After based on the actual limiter window, not an arbitrary constant, so it's a meaningful signal",
+      "Client side: exponential backoff with jitter, and a retry budget/cap so a persistent 429 doesn't retry forever",
+    ],
+    readMinutes: 2,
+  },
+]
+
+const sdFaultToleranceConcepts: ConceptCard[] = [
+  {
+    id: 'rto-rpo',
+    title: 'RTO vs RPO',
+    group: 'Recovery Objectives',
+    definition: 'RTO (Recovery Time Objective) is how long you can be down; RPO (Recovery Point Objective) is how much data you can afford to lose, measured as time since the last durable copy.',
+    whyItMatters: [
+      "They're business decisions, not engineering ones — finance/legal set the acceptable loss, engineering picks the architecture that hits it",
+      'A payments ledger might tolerate 30 minutes of downtime (RTO) but zero data loss (RPO near 0); an analytics dashboard can tolerate the reverse',
+    ],
+    remember: [
+      "RTO = time axis (how fast you're back), RPO = data axis (how far back you rewind)",
+      'Near-zero RTO and RPO together imply synchronous cross-region replication and automated failover — the most expensive tier',
+      "Every nine of RTO/RPO improvement costs disproportionately more; there's no linear scaling",
+    ],
+    interviewAngle: {
+      q: "A team says their DR plan gives 'zero data loss.' What do you ask?",
+      a: "What's the RTO? Zero RPO with synchronous replication across regions usually adds meaningful write latency — ask what tradeoff they accepted to get there, and whether it's actually synchronous or just 'usually caught up.'",
+    },
+    related: ['dr-strategy-tiers', 'active-active-vs-passive'],
+    readMinutes: 2,
+  },
+  {
+    id: 'dr-strategy-tiers',
+    title: 'DR Strategy Spectrum',
+    group: 'Recovery Objectives',
+    definition: 'DR approaches sit on a cost/RTO spectrum: backup-and-restore (hours-days RTO, cheapest) → pilot light (minutes-hours, minimal standby core running) → warm standby (minutes, scaled-down full stack running) → multi-site active-active (seconds, full duplicate capacity).',
+    whyItMatters: [
+      "Picking a tier is picking how much idle capacity you pay for continuously versus how long you're willing to be down",
+    ],
+    remember: [
+      'Pilot light: only core data stores replicate live; everything else is provisioned from IaC on failover',
+      'Warm standby: full stack already running at reduced scale, just needs scale-up + traffic cutover',
+      'Jumping a tier is usually a 5-10x cost jump, not incremental — justify it per-service, not org-wide',
+    ],
+    related: ['rto-rpo', 'active-active-vs-passive'],
+    readMinutes: 2,
+  },
+  {
+    id: 'active-active-vs-passive',
+    title: 'Active-Active vs Active-Passive',
+    group: 'Multi-Region Architecture',
+    definition: 'Active-active runs multiple regions serving live traffic simultaneously; active-passive keeps a standby region idle (or read-only) until promoted on failure.',
+    whyItMatters: [
+      'Active-active gives near-zero RTO for free — traffic is already flowing elsewhere when a region dies — but forces you to solve multi-region write conflicts',
+      'Active-passive is operationally simpler but the standby path is only as good as your last failover test',
+    ],
+    remember: [
+      "Active-active needs either conflict resolution (CRDTs, last-write-wins, vector clocks) or partitioned writes (each region owns a data shard) — you can't just let both sides write the same row",
+      "Active-passive's real risk isn't the architecture, it's drift: standby infra config silently diverging from primary until failover day",
+    ],
+    interviewAngle: {
+      q: "Why don't more teams run active-active?",
+      a: "It's not the infra cost — it's that most data models weren't designed for concurrent multi-region writes, and retrofitting conflict resolution is a correctness project, not a config change.",
+    },
+    related: ['rto-rpo', 'failover-mechanics'],
+    readMinutes: 2,
+  },
+  {
+    id: 'failover-mechanics',
+    title: 'Failover Mechanics & Split-Brain',
+    group: 'Multi-Region Architecture',
+    definition: 'Failover is the act of redirecting traffic/writes to a surviving replica, done automatically (fast, risk of false positives) or manually (slow, requires a human to confirm the primary is actually dead).',
+    whyItMatters: [
+      'Automated failover reduces RTO but can trigger on a transient network blip, causing an unnecessary and disruptive cutover',
+      "If the 'dead' primary isn't actually dead — just partitioned — both sides can end up accepting writes as primary: split-brain",
+    ],
+    remember: [
+      "Split-brain is prevented with quorum (majority of nodes must agree who's primary) or fencing (physically cut the old primary's ability to write, e.g. revoke its storage lease)",
+      "DNS-based failover has a hidden RTO tax: client-side DNS caching and TTLs mean 'instant' failover can still take minutes to actually reach all clients",
+      "STONITH ('shoot the other node in the head') is the blunt-force fencing pattern: forcibly kill the suspected-dead node before promoting the replacement",
+    ],
+    diagram: `flowchart LR
+  A[Primary] -->|heartbeat lost| B[Health Check]
+  B -->|quorum vote| C[Promote Replica]
+  B -->|fence old primary| D[Block Writes]`,
+    related: ['active-active-vs-passive', 'spof-blast-radius'],
+    readMinutes: 2,
+  },
+  {
+    id: 'backup-strategies',
+    title: 'Backup Types & Untested Backups',
+    group: 'Backup & Recovery',
+    definition: 'Backups range from full (entire dataset, slow, simple restore) to incremental (only changes since last backup, fast, chained restore) to continuous/CDC-based (near-zero RPO, streams changes as they happen).',
+    whyItMatters: [
+      'Incremental backups shrink RPO and storage cost but restore requires replaying the whole chain — a corrupted link breaks every backup after it',
+      'An untested backup is a hypothesis, not a backup — the only proof it works is a completed restore drill',
+    ],
+    remember: [
+      'Restore time, not backup time, is what actually matters for RTO — a backup that takes 5 minutes to create but 8 hours to restore blows most RTOs',
+      'Immutable/air-gapped backups (write-once, separate credentials) are the specific defense against ransomware, which otherwise encrypts your live backups along with production',
+      'Schedule restore drills on a cadence, not just after an incident — the day you need it is not the day to discover the backup is unreadable',
+    ],
+    interviewAngle: {
+      q: 'Your backups run nightly and have never failed a job. Are you covered?',
+      a: 'Not necessarily — a green backup job proves data was written somewhere, not that it can be restored into a working system within RTO. Only a real restore test proves that.',
+    },
+    related: ['rto-rpo'],
+    readMinutes: 2,
+  },
+  {
+    id: 'chaos-engineering',
+    title: 'Chaos Engineering',
+    group: 'Chaos Engineering & Blast Radius',
+    definition: 'The practice of deliberately injecting failure into a system — killing instances, adding latency, dropping network calls — to verify resilience assumptions hold in production, not just in theory.',
+    whyItMatters: [
+      "Failover paths, backups, and retries are code paths too — if they're never exercised, they rot silently until the one time you need them",
+      'Finding a weakness at 2pm on a Tuesday via a controlled experiment is strictly better than finding it during a real 3am outage',
+    ],
+    remember: [
+      "Start with a hypothesis ('the system stays available if we kill one AZ') and a steady-state metric to watch, not just 'break stuff and see'",
+      'Run in production, not staging — staging never has real traffic patterns, real data skew, or real scale to expose the failure mode',
+      'Game days (scheduled, human-run failure simulations) are the low-tooling entry point before investing in automated chaos platforms',
+    ],
+    related: ['spof-blast-radius'],
+    readMinutes: 2,
+  },
+  {
+    id: 'spof-blast-radius',
+    title: 'Blast Radius & Single Points of Failure',
+    group: 'Chaos Engineering & Blast Radius',
+    definition: 'Blast radius is how much of the system a single failure can take down; reducing it means partitioning infrastructure so one failure stays contained instead of cascading.',
+    whyItMatters: [
+      "SPOFs hide in shared dependencies that look redundant on a diagram but aren't in practice — a single DNS provider, a single cert, a single IAM/auth service every region calls back to",
+    ],
+    remember: [
+      "Cell-based architecture partitions the whole stack (compute, data, queues) into independent cells, each serving a slice of customers — a bug or overload in one cell can't spill into another",
+      "Shuffle sharding assigns each customer/request a unique, overlapping-but-not-identical subset of hosts, so a bad-actor or hot-key can't take down the same set of hosts for everyone",
+      "A SPOF audit means tracing every 'redundant' path back to its actual dependencies — redundant app servers behind one load balancer behind one DNS zone is still one SPOF",
+    ],
+    interviewAngle: {
+      q: "You have 3 AZs and redundant instances in each. What's still a SPOF?",
+      a: "Anything shared across all three that isn't itself multi-AZ by design — a single control-plane database, a single region-wide IAM/secrets service, or a single external dependency (payment gateway, DNS registrar) with no regional isolation.",
+    },
+    related: ['chaos-engineering', 'failover-mechanics'],
+    readMinutes: 2,
+  },
+]
+
+const sdServiceCommunicationConcepts: ConceptCard[] = [
+  {
+    id: 'sync-call-chain-risk',
+    title: 'Synchronous Call Chains',
+    group: 'Sync vs Async Topology',
+    definition: 'A request that fans out through several synchronous internal calls has its latency and availability bounded by the slowest and least reliable service in the chain.',
+    whyItMatters: [
+      'P99 latency compounds multiplicatively across hops, not additively — five services each with 99.9% uptime chained synchronously yield well under 99.9% end-to-end availability',
+      'A slow or down service N hops deep stalls every caller above it, turning one bad dependency into an outage for the whole chain',
+    ],
+    remember: [
+      'Depth of the synchronous call graph is itself a reliability metric — count hops, not just per-service SLAs',
+      'Sync chains couple deploy/availability of every service in the path; async decouples that at the cost of immediate consistency',
+    ],
+    interviewAngle: {
+      q: 'Why does a chain of five 99.9%-available services not give you 99.9% end-to-end?',
+      a: 'Availabilities multiply along a synchronous critical path — 0.999^5 ≈ 99.5%, and that ignores added latency at each hop, which compounds further under timeouts.',
+    },
+    readMinutes: 2,
+    related: ['orchestration-vs-choreography', 'async-messaging-tradeoff'],
+  },
+  {
+    id: 'async-messaging-tradeoff',
+    title: 'Sync vs Async for Internal Calls',
+    group: 'Sync vs Async Topology',
+    definition: 'Sync calls give immediate consistency and simple request/response reasoning; async calls (events/queues) trade that for decoupled availability and independent scaling, at the cost of eventual consistency and harder debugging.',
+    whyItMatters: [
+      "Choosing sync when the caller doesn't actually need the result immediately is the most common source of unnecessary coupling and cascading failure",
+      "Async doesn't remove the dependency, it just moves the failure mode from 'caller blocks/times out' to 'data is stale until the consumer catches up'",
+    ],
+    remember: [
+      'Rule of thumb: sync for read-your-own-write user-facing paths, async for anything that can tolerate seconds-to-minutes of lag (notifications, projections, downstream side effects)',
+      "A service can be sync on the critical path and async on everything that isn't — most real systems mix both, not pick one globally",
+    ],
+    readMinutes: 2,
+    related: ['sync-call-chain-risk'],
+  },
+  {
+    id: 'orchestration-vs-choreography',
+    title: 'Orchestration vs Choreography',
+    group: 'Workflow Coordination',
+    definition: "Orchestration has a central coordinator explicitly calling each service and tracking workflow state; choreography has services reacting to each other's events with no central authority.",
+    whyItMatters: [
+      'Orchestration gives one place to see and reason about the workflow (easy to audit, retry, visualize) but makes the orchestrator a coupling point and potential bottleneck',
+      "Choreography avoids that single point but scatters workflow logic across services, making 'what happens when order is placed' impossible to answer by reading one place",
+    ],
+    remember: [
+      'Orchestration = explicit state machine (e.g. a saga orchestrator, Temporal/Camunda workflow) driving each step and handling compensation on failure',
+      'Choreography = each service publishes an event and independently decides what to react to — nobody owns the end-to-end flow',
+      'Failure/compensation logic is easy to centralize in orchestration, painful to keep consistent across N independently-deployed services in choreography',
+    ],
+    interviewAngle: {
+      q: 'Your checkout saga has 6 steps with 3 possible compensations. Orchestration or choreography, and why?',
+      a: 'Orchestration — once compensation logic branches beyond a couple of steps, a central state machine that explicitly models retries and rollbacks is far easier to reason about and test than reconstructing the flow from scattered event handlers.',
+    },
+    readMinutes: 3,
+    related: ['sync-call-chain-risk'],
+  },
+  {
+    id: 'service-mesh-sidecar',
+    title: 'Service Mesh: Sidecar Proxy Pattern',
+    group: 'Service Mesh',
+    definition: 'A service mesh injects a proxy (sidecar) alongside every service instance to intercept all inbound/outbound traffic, moving cross-cutting network concerns out of application code into infrastructure.',
+    whyItMatters: [
+      'Every service gets mTLS, retries, timeouts, and traffic metrics uniformly without each team re-implementing a client library in their own language',
+      "The mesh is a data-plane (sidecars handling traffic) plus control-plane (e.g. Istio's istiod) that pushes config/policy to every sidecar",
+    ],
+    remember: [
+      'Every call now takes two extra local hops (client sidecar, server sidecar) — real added latency and a per-pod memory/CPU tax, not free',
+      'Mesh solves transport-layer concerns; it does not solve API compatibility, schema evolution, or business-level idempotency',
+    ],
+    readMinutes: 2,
+    related: ['service-mesh-scope'],
+  },
+  {
+    id: 'service-mesh-scope',
+    title: "What a Service Mesh Does and Doesn't Solve",
+    group: 'Service Mesh',
+    definition: 'A mesh handles mTLS, retries/timeouts, load balancing, and observability at the network layer — it cannot fix a chatty call graph, an unreliable downstream, or non-idempotent handlers.',
+    whyItMatters: [
+      "Teams sometimes adopt a mesh expecting it to 'fix microservices reliability' — it standardizes plumbing, it doesn't remove the architectural problems in sync-call-chain-risk or orchestration-vs-choreography",
+      "Automatic mesh-level retries on a non-idempotent endpoint can silently create duplicate side effects (double-charging, double-sending) — the mesh doesn't know your handler isn't idempotent",
+    ],
+    remember: [
+      'Mesh gives you: encryption in transit, uniform retry/timeout policy, traffic splitting/canary routing, golden-signal metrics for free',
+      'Mesh does not give you: fewer hops, business-level consistency, or safety of retrying non-idempotent operations',
+    ],
+    interviewAngle: {
+      q: 'A team says adopting a service mesh will fix their cascading-failure problem. Do you agree?',
+      a: "Partially — a mesh can enforce consistent timeouts/retries and give visibility, but if the root cause is a deep synchronous call chain or non-idempotent handlers, the mesh's own retries can make things worse (duplicate side effects) unless paired with actual topology and idempotency fixes.",
+    },
+    readMinutes: 2,
+    related: ['service-mesh-sidecar', 'sync-call-chain-risk'],
+  },
+  {
+    id: 'api-composition',
+    title: 'API Composition / Aggregation',
+    group: 'Reducing Chattiness',
+    definition: 'A composition layer calls multiple downstream services (often in parallel) and merges the results into one response, so the client makes one call instead of many.',
+    whyItMatters: [
+      'Without it, clients (especially mobile, on high-latency networks) end up making N sequential or parallel calls per screen, multiplying round trips and battery/network cost',
+      'In-memory joins across services replace what used to be a database join — composition logic has to handle partial failure (one downstream missing) gracefully, not just the happy path',
+    ],
+    remember: [
+      "Composition can live in an API gateway (shared, generic aggregation) or a dedicated aggregator service — either way it's still just fan-out-and-merge, so it inherits sync-call-chain latency/availability math",
+      'Aggregating in parallel bounds latency to the slowest downstream, not the sum — but still requires a policy for what to return if one downstream fails or times out',
+    ],
+    readMinutes: 2,
+    related: ['backend-for-frontend'],
+  },
+  {
+    id: 'backend-for-frontend',
+    title: 'Backend-for-Frontend (BFF)',
+    group: 'Reducing Chattiness',
+    definition: 'A composition layer dedicated to one client type (web, iOS, Android) rather than a single generic aggregation API shared by all clients.',
+    whyItMatters: [
+      'Different clients genuinely need different shapes and granularity of data — a shared generic gateway either over-fetches for mobile or under-fetches for web, forcing awkward compromise',
+      'Owning a BFF per client team removes the coordination bottleneck of a shared gateway team gatekeeping every client-driven API change',
+    ],
+    remember: [
+      'Cost: N BFFs mean N places composition logic can drift or duplicate — worth it once client needs diverge enough, not before',
+      'BFF vs generic API gateway aggregation is a team-topology decision as much as a technical one — who owns the composition logic and how often does it change per client',
+    ],
+    interviewAngle: {
+      q: 'When would you introduce a BFF instead of just adding composition to the shared API gateway?',
+      a: "When client teams' data/shape needs diverge enough (mobile wants a slim payload, web wants a richer one) that a shared gateway becomes a negotiation bottleneck between teams — a BFF lets each client team own its own aggregation without touching a shared codebase.",
+    },
+    readMinutes: 2,
+    related: ['api-composition'],
+  },
+  {
+    id: 'client-side-discovery',
+    title: 'Client-Side Service Discovery',
+    group: 'Service Discovery',
+    definition: 'The calling service queries a registry directly to get a list of healthy instances, then applies its own load-balancing logic to pick one and call it directly.',
+    whyItMatters: [
+      'Removes a network hop (no intermediary load balancer) and lets each client apply custom balancing (e.g. zone-aware routing) — but pushes discovery + balancing logic into every client, tied to its language/framework',
+    ],
+    remember: [
+      'Classic example: Netflix Eureka + Ribbon — client library resolves and balances against the registry directly',
+      "Registry becomes a hard dependency of every service; if it's unreachable, clients typically fall back to a cached last-known instance list rather than failing every call",
+    ],
+    readMinutes: 2,
+    related: ['server-side-discovery', 'dns-vs-registry-discovery'],
+  },
+  {
+    id: 'server-side-discovery',
+    title: 'Server-Side Service Discovery',
+    group: 'Service Discovery',
+    definition: 'The caller sends its request to a load balancer or gateway with one stable address, and that intermediary looks up the registry and routes to a healthy instance — the caller never talks to the registry.',
+    whyItMatters: [
+      'Simplifies clients (no discovery/balancing logic to embed per language) at the cost of an extra network hop and making the load balancer itself a piece of infrastructure to scale and keep highly available',
+    ],
+    remember: [
+      "Typical in Kubernetes: a Service's ClusterIP + kube-proxy is server-side discovery — pods never query etcd directly",
+      'Trades per-client complexity for a shared infrastructure component that now needs its own HA story',
+    ],
+    interviewAngle: {
+      q: "Kubernetes Services do discovery for you — what discovery pattern is that, and what's the tradeoff versus a client library like Ribbon?",
+      a: "Server-side discovery — kube-proxy/Service routes on the caller's behalf, so services stay simple and language-agnostic, at the cost of one extra network hop per call and making the routing layer itself a component that must scale and stay available.",
+    },
+    readMinutes: 2,
+    related: ['client-side-discovery', 'dns-vs-registry-discovery'],
+  },
+  {
+    id: 'dns-vs-registry-discovery',
+    title: 'DNS-Based vs Registry-Based Discovery',
+    group: 'Service Discovery',
+    definition: "DNS-based discovery resolves a service name through ordinary DNS (simple, near-universal client support); registry-based discovery (Consul, Eureka, etcd) tracks live health and supports near-real-time membership changes that DNS's caching model resists.",
+    whyItMatters: [
+      "DNS TTLs and OS/library-level DNS caching mean a deregistered or unhealthy instance can keep receiving traffic well after it's gone — DNS was designed for infrequent change, not second-by-second membership churn",
+      'A registry with active health checks and push/long-poll updates reflects instance state far faster, which matters a lot during autoscaling or rolling deploys',
+    ],
+    remember: [
+      'DNS-based discovery is the lowest-common-denominator option — works with zero client-side library, but staleness is a real production gotcha (dead pod still resolving for minutes)',
+      'Registry-based discovery needs a client integration (or a sidecar) but gives accurate, low-latency membership — the mesh control plane is usually itself backed by a registry',
+    ],
+    readMinutes: 2,
+    related: ['client-side-discovery', 'server-side-discovery'],
+  },
+  {
+    id: 'fan-out-amplification',
+    title: 'Fan-Out Amplification',
+    group: 'Reducing Chattiness',
+    definition: 'A single incoming request that triggers calls to many downstream services multiplies load and failure surface proportionally to the number of downstreams touched.',
+    whyItMatters: [
+      'One popular endpoint calling 10 downstreams turns a modest traffic spike at the edge into a 10x traffic spike distributed across the fleet — the downstream with the least headroom becomes the bottleneck',
+      'Failure probability compounds the same way latency does in a sync chain — more downstreams touched per request means a higher chance at least one fails',
+    ],
+    remember: [
+      'Composition/aggregation (api-composition) reduces client-visible fan-out but the internal fan-out to downstreams still exists and still needs timeout budgets and partial-failure handling',
+      'Watch for accidental fan-out amplification: a downstream call inside a loop, or an aggregator that recursively triggers more aggregators',
+    ],
+    readMinutes: 2,
+    related: ['api-composition', 'sync-call-chain-risk'],
+  },
+  {
+    id: 'communication-topology-diagram',
+    title: 'Call Topology at a Glance',
+    group: 'Reducing Chattiness',
+    definition: 'Composition/BFF layers sit between clients and the service mesh of internal calls, converting many chatty client calls into one aggregated round trip.',
+    diagram: `flowchart LR
+  Client --> BFF
+  BFF --> ServiceA
+  BFF --> ServiceB
+  BFF --> ServiceC`,
+    readMinutes: 1,
+    related: ['api-composition', 'backend-for-frontend'],
+  },
+]
+
 export const systemDesignConcepts: ConceptSection[] = [
   {
     id: 'sd-concept-fundamentals',
@@ -2773,5 +4211,54 @@ export const systemDesignConcepts: ConceptSection[] = [
     title: 'Monitoring, Logging & Distributed Tracing',
     intro: "Observability is what lets you answer questions about a distributed system you didn't anticipate asking in advance — the three pillars (metrics, logs, traces) each answer a different class of question, and none of them substitutes for the others.",
     concepts: sdObservabilityConcepts,
+  },
+  {
+    id: 'sd-concept-estimation',
+    subtopic: 'sd-estimation',
+    title: 'Capacity Estimation & Back-of-Envelope Math',
+    intro: 'Fermi-style estimation is a communication skill, not an arithmetic test — interviewers watch how you decompose a fuzzy question into assumptions, sanity-check units, and land on a defensible order of magnitude.',
+    concepts: sdEstimationConcepts,
+  },
+  {
+    id: 'sd-concept-indexing',
+    subtopic: 'sd-indexing',
+    title: 'Indexing & Query Performance',
+    intro: 'Indexes are the primary lever for read latency at scale, but every index is a tradeoff, not a free win — the system-design job is choosing which indexes to build, how to shape queries around them, and when to reach for denormalization or a dedicated search index instead.',
+    concepts: sdIndexingConcepts,
+  },
+  {
+    id: 'sd-concept-transactions',
+    subtopic: 'sd-transactions',
+    title: 'Distributed Transactions & Consensus',
+    intro: 'How systems actually get atomicity and agreement across independent nodes, not just what consistency level they end up with — 2PC, sagas, consensus algorithms, and the idempotency/outbox plumbing that makes retries safe.',
+    concepts: sdTransactionsConcepts,
+  },
+  {
+    id: 'sd-concept-event-driven',
+    subtopic: 'sd-event-driven',
+    title: 'Event-Driven Architecture & Streaming',
+    intro: "Event-driven architecture is a design style built on services reacting to facts that already happened, not on a shared queue's delivery mechanics. This subtopic covers event sourcing, CQRS, event payload design, and stream processing semantics.",
+    concepts: sdEventDrivenConcepts,
+  },
+  {
+    id: 'sd-concept-rate-limiting',
+    subtopic: 'sd-rate-limiting',
+    title: 'Rate Limiting & Load Shedding',
+    intro: "Traffic control at the system boundary: which algorithm to enforce limits with, where to enforce them, how to keep counters consistent across many instances, and what to do when limiting alone isn't enough and load has to be shed.",
+    concepts: sdRateLimitingConcepts,
+  },
+  {
+    id: 'sd-concept-fault-tolerance',
+    subtopic: 'sd-fault-tolerance',
+    title: 'Fault Tolerance & Disaster Recovery',
+    intro: 'How systems survive infrastructure-level failures — from a single instance dying to an entire region going dark — and the recovery objectives and DR patterns that determine what that survival costs.',
+    concepts: sdFaultToleranceConcepts,
+  },
+  {
+    id: 'sd-concept-service-communication',
+    subtopic: 'sd-service-communication',
+    title: 'Service-to-Service Communication Patterns',
+    intro: 'How services actually talk to each other inside the boundary — call topology, coordination style, and discovery mechanics — not the wire protocol or the client-facing API shape.',
+    concepts: sdServiceCommunicationConcepts,
   },
 ]
