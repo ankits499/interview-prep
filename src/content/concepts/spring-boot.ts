@@ -3029,6 +3029,11 @@ const sbWebfluxConcepts: ConceptCard[] = [
     title: 'Backpressure Has Protocol Boundaries',
     group: 'Demand and Flow Control',
     definition: 'Reactive Streams demand controls how many elements an upstream Publisher emits, but it cannot force a non-cooperative external source or an HTTP client already sending bytes to slow down.',
+    diagram: `flowchart LR
+  Subscriber --> Publisher
+  Publisher --> Buffer
+  Buffer --> Consumer
+  Source[External Source] --> Buffer`,
     whyItMatters: [
       'A database driver that honors demand can reduce rows in flight, while a legacy callback API may require an explicit bounded buffer or load shedding',
       'Returning Flux over HTTP does not give end-to-end business backpressure unless every stage and transport participates',
@@ -3061,6 +3066,11 @@ const sbWebfluxConcepts: ConceptCard[] = [
     title: 'Reactor Context vs ThreadLocal',
     group: 'Context and Correctness',
     definition: 'Reactor Context is immutable metadata attached to a subscription, whereas ThreadLocal state belongs to a thread and can disappear or leak when signals move across event-loop and worker threads.',
+    diagram: `flowchart LR
+  Request --> Context
+  Context --> First[Operator]
+  First --> Second[Operator]
+  Context -.metadata.-> Second`,
     whyItMatters: [
       'MDC correlation IDs, security identity, and tenant metadata need deliberate propagation across reactive operators',
       'Reading context at assembly time fails because the subscriber-specific context does not exist until subscription',
@@ -3292,6 +3302,12 @@ const sbResilienceConcepts: ConceptCard[] = [
     title: 'Semaphore vs Thread-Pool Bulkhead',
     group: 'Timeouts and Isolation',
     definition: "A semaphore bulkhead limits concurrent calls on the caller's thread, while a thread-pool bulkhead adds a separate executor and bounded queue to isolate execution resources.",
+    diagram: `flowchart LR
+  Caller --> Semaphore
+  Caller --> Queue
+  Queue --> Pool[Worker Pool]
+  Semaphore --> Dependency
+  Pool --> Dependency`,
     whyItMatters: [
       'A thread-pool bulkhead can contain blocking work but adds queueing, context propagation, and another timeout boundary',
       'Semaphore bulkheads fit non-blocking pipelines only when permits are held for the true asynchronous lifetime rather than released when a Publisher is assembled',
@@ -3524,6 +3540,12 @@ const sbMessagingConcepts: ConceptCard[] = [
     title: 'Listener Shutdown Must Drain in Order',
     group: 'Contracts & Operations',
     definition: 'A graceful message-consumer shutdown stops new delivery or polling first, then gives in-flight handlers bounded time to finish and acknowledge before executor and connection teardown.',
+    diagram: `flowchart LR
+  Ready --> Unready
+  Unready --> Stop[Stop Polling]
+  Stop --> Drain
+  Drain --> Acknowledge
+  Acknowledge --> Close`,
     remember: [
       'Mark the instance unready before draining so orchestration stops assigning new work',
       'Never close the database or broker connection before handlers using them finish',

@@ -4126,6 +4126,11 @@ const sdReplicationOperationsConcepts: ConceptCard[] = [
     title: 'Fencing Tokens Stop Stale Leaders',
     group: 'Failover Safety',
     definition: "A fencing token is a monotonically increasing epoch attached to each leader's writes, allowing storage or downstream resources to reject commands from an older leader after failover.",
+    diagram: `flowchart LR
+  Authority --> New[New Leader]
+  Authority --> Old[Old Leader]
+  New --> Storage
+  Old -.rejected.-> Storage`,
     whyItMatters: [
       'A lease or heartbeat can tell a node to stop, but a paused process may resume after its lease expired and still write unless the resource independently rejects its stale epoch.',
     ],
@@ -4174,6 +4179,11 @@ const sdReplicationOperationsConcepts: ConceptCard[] = [
     title: 'Online Rebalancing Is a State Machine',
     group: 'Rebalancing',
     definition: 'Safe live shard movement progresses through explicit ownership states for snapshot copy, change catch-up, validated cutover, and old-owner retirement so every write has one authoritative destination throughout migration.',
+    diagram: `flowchart LR
+  Snapshot --> Catchup
+  Catchup --> Validate
+  Validate --> Cutover
+  Cutover --> Retire`,
     whyItMatters: [
       'An uncoordinated backfill plus routing flip can lose writes that land on the old owner after its copied range has already passed.',
     ],
@@ -4209,6 +4219,11 @@ const sdTransactionRecoveryConcepts: ConceptCard[] = [
     title: 'A Saga Is a Durable State Machine',
     group: 'Saga Recovery',
     definition: 'A production saga persists its current step, outcomes, deadlines, retry policy, and compensation progress so another worker can resume deterministically after a crash.',
+    diagram: `flowchart LR
+  Persist --> Command
+  Command --> Outcome
+  Outcome --> Next[Next Step]
+  Outcome --> Compensate`,
     whyItMatters: [
       'An in-memory orchestrator can lose the only record of whether a payment was requested, succeeded, or needs compensation.',
     ],
@@ -4343,6 +4358,10 @@ const sdFundamentalsSupplementConcepts: ConceptCard[] = [
     title: 'End-to-End Deadline Propagation',
     group: 'Overload Control',
     definition: 'A request deadline is an absolute remaining-time budget propagated across hops so downstream work can stop or reject when it can no longer contribute a useful response.',
+    diagram: `flowchart LR
+  Client -->|two seconds| Gateway
+  Gateway -->|one second| ServiceA[Service A]
+  ServiceA -->|half second| ServiceB[Service B]`,
     whyItMatters: [
       "Independent per-hop timeouts can sum beyond the caller's deadline and leave orphaned work running after the response is abandoned",
       'Retries must consume the same budget rather than receiving a fresh timeout per attempt',
@@ -4427,6 +4446,12 @@ const sdFaultToleranceSupplementConcepts: ConceptCard[] = [
     title: 'Regional Evacuation Capacity',
     group: 'Regional Failure Domains',
     definition: 'A failover region must absorb displaced peak traffic plus recovery work without exceeding compute, database, connection, quota, or network capacity.',
+    diagram: `flowchart LR
+  Primary --> Standby
+  Standby --> Traffic
+  Standby --> Database
+  Standby --> Cache
+  Standby --> Queue`,
     whyItMatters: [
       'A warm standby can start correctly and still collapse while scaling, warming caches, replaying queues, and receiving a full traffic shift',
       'Cloud quotas and downstream allowlists often become the real recovery bottleneck',

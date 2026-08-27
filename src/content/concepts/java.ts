@@ -5505,6 +5505,11 @@ const modernJavaSupplementConcepts: ConceptCard[] = [
     title: 'Scoped Values for Immutable Context',
     group: 'Context Propagation',
     definition: 'ScopedValue, finalized in JDK 25 by JEP 506, binds immutable contextual data for a bounded dynamic scope so child work can read it without the mutable, lifetime-prone semantics of ThreadLocal.',
+    diagram: `flowchart LR
+  Request --> Binding[Scoped Value]
+  Binding --> Parent
+  Parent --> ChildA[Child Task]
+  Parent --> ChildB[Child Task]`,
     whyItMatters: [
       'Request IDs, principals, and tracing context can follow structured child tasks without copying a ThreadLocal into every virtual thread or risking stale values on reused platform threads.',
     ],
@@ -5521,6 +5526,12 @@ const modernJavaSupplementConcepts: ConceptCard[] = [
     title: 'Structured Concurrency Owns Task Lifetimes',
     group: 'Structured Concurrency',
     definition: 'Structured concurrency treats related subtasks as one lexical unit whose owner joins, cancels, and observes them together, preventing orphaned work from outliving the request that created it.',
+    diagram: `flowchart LR
+  Parent --> Scope
+  Scope --> ChildA[Child Task]
+  Scope --> ChildB[Child Task]
+  ChildA --> Join
+  ChildB --> Join`,
     whyItMatters: [
       'On partial failure or timeout, sibling tasks can be cancelled as a group and the parent cannot accidentally return while child work continues consuming sockets or mutating state.',
     ],
@@ -5878,6 +5889,10 @@ const asyncLifecycleSupplementConcepts: ConceptCard[] = [
     title: 'CompletableFuture Cancellation Is Not Task Cancellation',
     group: 'Cancellation & Deadlines',
     definition: 'Cancelling a CompletableFuture completes that stage with CancellationException but does not reliably interrupt or stop the supplier that is already running underneath it.',
+    diagram: `flowchart LR
+  Caller --> Future
+  Future --> Dependents
+  Future -.work continues.-> Supplier`,
     whyItMatters: [
       'CompletableFuture.cancel(true) treats mayInterruptIfRunning as irrelevant, unlike a Future returned directly by ExecutorService.submit',
       'A cancelled request can therefore keep consuming a thread, connection, or downstream quota unless the operation has its own cancellation mechanism',
