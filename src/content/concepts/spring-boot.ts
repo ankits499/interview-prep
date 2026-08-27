@@ -1369,7 +1369,816 @@ orderRepository.findAll(spec);`,
   },
 ]
 
+const sbTransactionsConcepts: ConceptCard[] = [
+  // Group: @Transactional Mechanics
+  {
+    id: 'transactional-proxy-mechanics',
+    title: '@Transactional Is Proxy-Based AOP',
+    group: '@Transactional Mechanics',
+    definition: 'Spring implements @Transactional by wrapping the bean in a proxy (JDK dynamic proxy for an interface, CGLIB subclass otherwise) that opens a transaction before the method runs and commits or rolls back after it returns.',
+    whyItMatters: [
+      'The annotation itself does nothing at runtime without the proxy — it is pure metadata read by a BeanPostProcessor at startup',
+      'Only calls that arrive through the proxy (i.e. from another bean) are intercepted; calls inside the target object bypass it entirely',
+    ],
+    remember: ['CGLIB proxies require a non-final class and a non-final method to override', 'Same proxy mechanism underlies @Async and @Cacheable — this is not transaction-specific magic'],
+    related: ['transactional-self-invocation-gotcha'],
+    readMinutes: 2,
+  },
+  {
+    id: 'transactional-self-invocation-gotcha',
+    title: 'Self-Invocation Bypasses the Proxy',
+    group: '@Transactional Mechanics',
+    definition: 'Calling a @Transactional method from another method in the same class goes through `this` directly, never through the Spring proxy, so the transaction annotation is silently ignored.',
+    whyItMatters: [
+      'This is one of the most common production surprises: no exception, no warning — the code just runs non-transactionally',
+      'Also breaks propagation settings like REQUIRES_NEW when invoked this way, since there is no proxy to start the new transaction',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@Service
+public class OrderService {
+
+    public void placeOrder(Order order) {
+        // self-invocation: bypasses proxy, saveOrder runs WITHOUT a transaction
+        saveOrder(order);
+    }
+
+    @Transactional
+    public void saveOrder(Order order) {
+        orderRepository.save(order);
+    }
+}`,
+      },
+      note: 'Fix: inject a self-reference (ApplicationContext.getBean or @Lazy self-autowiring), or move saveOrder to a separate collaborator bean and call it through that bean.',
+    },
+    remember: ['Detectable by injecting the proxy into itself (@Lazy @Autowired self field) or splitting into two beans', 'AopContext.currentProxy() is an older, less clean workaround requiring exposeProxy=true'],
+    interviewAngle: {
+      q: 'A @Transactional method is called from another method in the same class and no rollback happens on failure — why?',
+      a: 'Self-invocation bypasses the Spring AOP proxy entirely, so the @Transactional annotation on the inner method is never intercepted and no transaction is ever opened.',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'transactional-visibility-checked-exceptions',
+    title: 'Method Visibility & Where @Transactional Is Placed',
+    group: '@Transactional Mechanics',
+    definition: 'By default Spring only proxies public methods, and placing @Transactional on a class applies it as the default for every public method unless a method overrides it individually.',
+    whyItMatters: [
+      'Putting @Transactional on a protected or package-private method silently does nothing with the default proxy-based AOP (AspectJ weaving is the exception, but that is rarely the default setup)',
+      'Annotating an interface method versus the implementing class method matters for JDK proxies — annotate the implementation unless you specifically want interface-level semantics',
+    ],
+    remember: ['Class-level @Transactional sets defaults; a method-level @Transactional overrides just that method', 'Best practice: put it on concrete public methods, not interfaces, to avoid inheritance ambiguity'],
+    readMinutes: 1,
+  },
+
+  // Group: Propagation
+  {
+    id: 'propagation-required-vs-requires-new',
+    title: 'REQUIRED vs REQUIRES_NEW',
+    group: 'Propagation',
+    definition: 'REQUIRED (the default) joins an existing transaction if one is active or starts one if not, so an inner method rolls back together with its caller; REQUIRES_NEW always suspends any existing transaction and starts a fully independent one that commits or rolls back on its own.',
+    whyItMatters: [
+      'Classic use case: an audit-log write that must persist even if the outer business transaction later fails and rolls back — put the audit write in a separate REQUIRES_NEW method',
+      'REQUIRES_NEW suspends the outer transaction\'s connection while the inner one runs, meaning it commits to the database and becomes visible to other transactions before the outer one finishes',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@Service
+public class AuditingOrderService {
+
+    @Autowired private AuditService auditService; // separate bean, not self
+
+    @Transactional
+    public void placeOrder(Order order) {
+        orderRepository.save(order);
+        auditService.logAttempt(order); // commits independently
+        paymentGateway.charge(order);   // if this throws, order save rolls back,
+                                         // but the audit log entry stays committed
+    }
+}
+
+@Service
+public class AuditService {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void logAttempt(Order order) {
+        auditRepository.save(new AuditEntry(order));
+    }
+}`,
+      },
+      note: 'logAttempt must live on a different bean than placeOrder — calling it as a self-invocation would bypass the proxy and REQUIRES_NEW would never take effect.',
+    },
+    remember: ['REQUIRES_NEW uses a second physical connection/transaction, which has real cost under connection-pool pressure', 'A failure inside a REQUIRES_NEW block does not automatically roll back the suspended outer transaction'],
+    diagram: 'flowchart LR\n  outer[Outer transaction starts] --> call[Call inner method]\n  call --> suspend[Outer suspended]\n  suspend --> inner[Inner transaction starts and commits]\n  inner --> resume[Outer resumes]\n  resume --> outerEnd[Outer commits or rolls back]',
+    related: ['propagation-nested', 'transactional-self-invocation-gotcha'],
+    readMinutes: 2,
+  },
+  {
+    id: 'propagation-nested',
+    title: 'NESTED Propagation',
+    group: 'Propagation',
+    definition: 'NESTED runs inside the same physical transaction as the caller but marks a savepoint, so a failure in the nested segment can roll back just to that savepoint without aborting the entire outer transaction.',
+    whyItMatters: [
+      'Unlike REQUIRES_NEW, it shares one connection and one commit/rollback unit — cheaper, but only works with resource managers/drivers that support JDBC savepoints (not all JTA transaction managers do)',
+      'A rollback of the nested segment lets the outer transaction catch the exception and continue, then still commit everything that came before the savepoint',
+    ],
+    remember: ['Requires DataSourceTransactionManager with nestedTransactionAllowed (true by default) — plain JTA managers often reject it', 'Different from REQUIRES_NEW: NESTED failure does not doom the outer transaction if caught; the two are not interchangeable for the audit-log scenario'],
+    readMinutes: 2,
+  },
+  {
+    id: 'propagation-supports-mandatory-never',
+    title: 'SUPPORTS, NOT_SUPPORTED, MANDATORY, NEVER',
+    group: 'Propagation',
+    definition: 'These four propagation types govern whether a method requires, forbids, or is indifferent to an already-active transaction: SUPPORTS joins one if present but runs non-transactionally if not, NOT_SUPPORTED suspends any active transaction and runs outside one, MANDATORY throws if no transaction is active, and NEVER throws if one is active.',
+    whyItMatters: [
+      'MANDATORY is a useful assertion for internal helper methods that must never be called outside an existing transaction boundary — it fails fast instead of silently running unguarded',
+      'NOT_SUPPORTED is used to run a long read (like a report query) outside a transaction on purpose, freeing the connection/lock sooner',
+    ],
+    remember: ['SUPPORTS is the "I don\'t care" setting — rarely what you actually want since it hides bugs where a transaction was assumed', 'NEVER is used to guarantee a method (e.g. one issuing DDL) is never accidentally wrapped in a transaction'],
+    readMinutes: 1,
+  },
+
+  // Group: Isolation
+  {
+    id: 'isolation-levels-and-anomalies',
+    title: 'Isolation Levels & the Anomalies They Prevent',
+    group: 'Isolation',
+    definition: 'READ_UNCOMMITTED allows dirty reads, READ_COMMITTED prevents dirty reads but allows non-repeatable reads, REPEATABLE_READ additionally prevents non-repeatable reads but (on most databases other than MySQL/InnoDB) still allows phantom reads, and SERIALIZABLE prevents all three by effectively serializing transactions.',
+    whyItMatters: [
+      'A dirty read means seeing another transaction\'s uncommitted write; a non-repeatable read means re-reading the same row twice in one transaction and getting different values; a phantom read means a range query returning different rows on a second execution because another transaction inserted/deleted matching rows',
+      'MySQL InnoDB\'s REPEATABLE_READ actually blocks phantom reads too via gap locking/MVCC snapshots — the SQL standard only guarantees what the level name promises, and real engines vary',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@Transactional(isolation = Isolation.READ_COMMITTED)
+public BigDecimal getAccountBalance(Long accountId) {
+    return accountRepository.findById(accountId)
+        .orElseThrow()
+        .getBalance();
+}`,
+      },
+      note: 'Default is Isolation.DEFAULT, which delegates to whatever the underlying database\'s default is — for most RDBMS that is READ_COMMITTED, but it is worth confirming rather than assuming.',
+    },
+    remember: ['Higher isolation = more locking/versioning overhead and more contention, not just "safer for free"', 'PostgreSQL and Oracle default to READ_COMMITTED; MySQL/InnoDB defaults to REPEATABLE_READ'],
+    interviewAngle: {
+      q: 'Why might REPEATABLE_READ still not be enough to prevent a race condition in a report that sums a range of rows?',
+      a: 'Standard REPEATABLE_READ prevents re-reading the same row differently, but a phantom row inserted into the range by a concurrent transaction can still change the range\'s result set — only SERIALIZABLE (or engine-specific gap locking like InnoDB\'s) fully closes that.',
+    },
+    readMinutes: 3,
+  },
+
+  // Group: Rollback Rules
+  {
+    id: 'default-rollback-rules',
+    title: 'Default Rollback Rules: Unchecked Yes, Checked No',
+    group: 'Rollback Rules',
+    definition: 'By default, Spring rolls a transaction back on any unchecked exception (RuntimeException or Error) but does not roll back on a checked exception, since checked exceptions are treated as expected, recoverable outcomes rather than failures.',
+    whyItMatters: [
+      'This surprises developers coming from a "any exception should roll back" assumption — a checked IOException thrown inside a @Transactional method will commit whatever was already written unless overridden',
+      'rollbackFor and noRollbackFor let you override the default per-method: rollbackFor(Exception.class) forces even checked exceptions to roll back',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@Transactional(rollbackFor = InvoiceGenerationException.class)
+public void processInvoice(Order order) throws InvoiceGenerationException {
+    orderRepository.markProcessed(order);
+    if (!pdfService.generate(order)) {
+        // checked exception — without rollbackFor, the markProcessed above
+        // would still commit even though invoice generation failed
+        throw new InvoiceGenerationException("PDF generation failed");
+    }
+}`,
+      },
+    },
+    remember: ['Rule applies at the outermost @Transactional boundary that catches or lets the exception propagate — swallowing the exception inside the method prevents rollback entirely, checked or not', 'noRollbackFor is used to whitelist a specific RuntimeException that should NOT trigger rollback, e.g. a known/expected validation failure'],
+    interviewAngle: {
+      q: 'A @Transactional method throws a checked exception after writing to two tables — why did both writes commit?',
+      a: 'Spring\'s default rollback policy only triggers on unchecked exceptions (RuntimeException/Error); checked exceptions are assumed to be expected outcomes and are allowed to commit unless rollbackFor is explicitly configured.',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'rollback-only-and-catching-exceptions',
+    title: 'Catching Exceptions Inside a Transactional Method Suppresses Rollback',
+    group: 'Rollback Rules',
+    definition: 'If code inside a @Transactional method catches an exception and does not rethrow it, the proxy never sees a failure and commits normally, even if the caught exception was a RuntimeException that would otherwise have triggered rollback.',
+    whyItMatters: [
+      'A very common bug: wrapping repository calls in a broad try/catch for logging purposes accidentally swallows the signal the proxy needs to roll back',
+      'TransactionAspectSupport.currentTransactionStatus().setRollbackOnly() lets you force a rollback from inside a catch block without rethrowing, when you specifically want to swallow the exception at that layer but still abort the transaction',
+    ],
+    remember: ['setRollbackOnly() marks the transaction rollback-only but does not throw — the method still returns normally and any caller/proxy will throw UnexpectedRollbackException only if it tries to commit', 'This is different from just not catching the exception — both approaches roll back, but setRollbackOnly lets the method still return a value'],
+    readMinutes: 2,
+  },
+
+  // Group: Advanced Patterns
+  {
+    id: 'readonly-transaction-hint',
+    title: '@Transactional(readOnly = true) Is a Hint, Not Enforcement',
+    group: 'Advanced Patterns',
+    definition: 'Marking a transaction read-only signals the persistence provider and driver that no writes are expected, which can enable optimizations like skipping dirty-checking flushes and, on some drivers, routing to a read replica — but Spring does not actually block a write inside it.',
+    whyItMatters: [
+      'Hibernate uses the flag to set FlushMode.MANUAL, avoiding the flush-before-query cost, which is a real performance win on read-heavy service methods',
+      'Whether an actual write inside a readOnly=true block throws, silently no-ops, or succeeds depends entirely on the JPA provider/driver — it is not a portable guarantee, so don\'t rely on it as a safety net',
+    ],
+    remember: ['Best practice: pair with a code-review discipline, not runtime enforcement, to keep read paths actually read-only', 'Some connection pools/drivers (e.g. certain MySQL configs) do reject writes on a read-only connection — behavior is driver-dependent'],
+    readMinutes: 2,
+  },
+  {
+    id: 'transaction-timeout',
+    title: 'Transaction Timeout',
+    group: 'Advanced Patterns',
+    definition: '@Transactional(timeout = N) sets a maximum number of seconds the transaction may stay open before Spring forces a rollback and throws a TransactionTimedOutException, guarding against a stuck query or slow downstream call holding a connection indefinitely.',
+    whyItMatters: [
+      'Protects the connection pool from exhaustion when one runaway transaction would otherwise hold a connection open until the caller\'s own timeout (if any) eventually fires',
+      'The timeout is enforced by the transaction manager, not the database — actual DB-side statement timeouts are a separate, complementary setting',
+    ],
+    remember: ['Default is -1 (no timeout) — most services should set a sane bound rather than trusting each downstream call to time out on its own', 'Applies to the whole transaction lifetime, not per-statement'],
+    readMinutes: 1,
+  },
+  {
+    id: 'programmatic-vs-declarative-tx',
+    title: 'TransactionTemplate vs @Transactional',
+    group: 'Advanced Patterns',
+    definition: 'TransactionTemplate (or PlatformTransactionManager directly) gives programmatic, in-method control over transaction boundaries, useful when only part of a method needs to be transactional or when the transaction boundary depends on runtime conditions that a static annotation can\'t express.',
+    whyItMatters: [
+      'Avoids splitting a method across multiple beans purely to work around the self-invocation limitation of @Transactional, when the goal is really just "wrap this one block"',
+      'Makes conditional transaction boundaries possible — e.g. only wrap the write path in a transaction, leave an expensive read/compute step outside it entirely',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `@Service
+public class ReconciliationService {
+
+    private final TransactionTemplate transactionTemplate;
+
+    public ReconciliationService(PlatformTransactionManager txManager) {
+        this.transactionTemplate = new TransactionTemplate(txManager);
+        this.transactionTemplate.setPropagationBehavior(Propagation.REQUIRES_NEW.value());
+    }
+
+    public void reconcile(Batch batch) {
+        List<Record> records = fetchRecords(batch); // outside any transaction
+
+        transactionTemplate.executeWithoutResult(status -> {
+            recordRepository.saveAll(records);        // only this part is transactional
+            if (hasDiscrepancy(records)) {
+                status.setRollbackOnly();
+            }
+        });
+    }
+}`,
+      },
+    },
+    remember: ['Reach for this when the transactional boundary is a fragment of a method or is decided at runtime, not the whole method', 'Both ultimately drive the same PlatformTransactionManager — declarative is just AOP sugar over the same programmatic API'],
+    readMinutes: 2,
+  },
+  {
+    id: 'test-transaction-rollback',
+    title: '@Transactional on Test Methods Auto-Rolls-Back',
+    group: 'Advanced Patterns',
+    definition: 'Spring\'s test support wraps a @Transactional test method in a transaction that is rolled back after the test completes by default, so database writes made during the test never persist and each test starts from a clean slate.',
+    whyItMatters: [
+      'Convenient for integration tests that hit a real (often embedded/test-container) database without needing manual cleanup, but it also means testing actual commit behavior (e.g. verifying REQUIRES_NEW committed independently) needs @Commit or a non-transactional test setup',
+      'Easy to misread as "the whole app is transactional" when really it\'s test-scaffolding rolling back everything at the end',
+    ],
+    remember: ['@Rollback(false) or @Commit overrides the auto-rollback for a specific test', 'A REQUIRES_NEW call inside the test still commits independently since it uses a separate physical transaction — only the outer test transaction rolls back'],
+    readMinutes: 1,
+  },
+  {
+    id: 'jta-distributed-transactions',
+    title: 'JTA/XA vs Local Transactions',
+    group: 'Advanced Patterns',
+    definition: 'Spring supports distributed (XA/two-phase-commit) transactions across multiple resources via a JtaTransactionManager, but most modern Spring Boot systems avoid JTA in favor of a single local datasource per service plus eventual consistency (outbox pattern, Saga) between services.',
+    whyItMatters: [
+      'JTA/XA adds real operational cost — a transaction coordinator, XA-capable drivers, and locks held across multiple resource managers for the duration of a slow two-phase commit',
+      'The architectural trend of one database per microservice makes cross-database local transactions rare by design; the coordination problem shifts to messaging/saga patterns instead of the transaction manager',
+    ],
+    remember: ['If you see JtaTransactionManager or an XADataSource in a Spring config, it usually signals a legacy multi-resource integration, not a default choice for new services', 'Deep distributed-transaction protocol tradeoffs (2PC vs Saga mechanics) are a system-design topic, not a Spring-configuration one'],
+    readMinutes: 1,
+  },
+]
+
+const sbJpaPerformanceConcepts: ConceptCard[] = [
+  // Group: Lazy vs Eager Loading
+  {
+    id: 'lazy-vs-eager-fetch',
+    title: 'FetchType.LAZY vs EAGER',
+    group: 'Lazy vs Eager Loading',
+    definition: 'FetchType controls whether an association is loaded immediately with its owner (EAGER) or deferred until first accessed (LAZY), and the JPA spec defaults @OneToMany/@ManyToMany to LAZY but @ManyToOne/@OneToOne to EAGER.',
+    whyItMatters: [
+      'EAGER on a @ManyToOne that is rarely read pulls in a join (or extra query) on every single fetch of the owning entity, even when the caller never uses it',
+      'EAGER associations cannot be selectively skipped per-query — once mapped EAGER, every load of that entity fetches it, forcing you to override with a fetch-join or projection to avoid it',
+    ],
+    remember: [
+      'Practical rule: map every association LAZY explicitly and opt into eager loading per-query (JOIN FETCH / @EntityGraph) rather than per-entity',
+      'JPA spec default EAGER for @ManyToOne/@OneToOne is a historical footgun most teams override with fetch = FetchType.LAZY'
+    ],
+    interviewAngle: { q: 'Why should collections default to LAZY?', a: 'Loading an entire collection eagerly on every parent fetch is unbounded work the caller usually doesn\'t need; LAZY defers the cost until (and unless) the code actually touches it.' },
+    readMinutes: 2,
+  },
+  {
+    id: 'lazy-initialization-exception',
+    title: 'LazyInitializationException',
+    group: 'Lazy vs Eager Loading',
+    definition: 'Thrown when code accesses a LAZY association after the Persistence Context that loaded the owning entity has already closed, because Hibernate has no active session left to run the deferred SELECT.',
+    whyItMatters: [
+      'Classic trigger: a @Transactional service method returns an entity, the transaction commits (closing the session), and a later layer (controller, serializer) touches a lazy field',
+      'The fix is never "make it EAGER" — that just trades a clear exception for a silent, permanent performance cost on every load'
+    ],
+    remember: [
+      'Correct fixes: fetch what you need inside the transaction (JOIN FETCH / @EntityGraph), or map to a DTO before the session closes',
+      'Open Session In View suppresses this exception by keeping the session open through view rendering — see the OSIV card for why that\'s a tradeoff, not a fix'
+    ],
+    readMinutes: 2,
+    related: ['open-session-in-view', 'join-fetch-vs-entitygraph'],
+  },
+
+  // Group: The N+1 Problem
+  {
+    id: 'n-plus-one-problem',
+    title: 'The N+1 Select Problem',
+    group: 'The N+1 Problem',
+    definition: 'Fetching a list of N parent entities runs 1 query, but then accessing each parent\'s lazy association inside a loop triggers one additional query per parent, for N+1 total queries instead of 1 or 2.',
+    whyItMatters: [
+      'It doesn\'t show up in unit tests against tiny datasets — it appears as latency that scales linearly with result-set size, often first noticed in production under real load',
+      'It hides behind innocent-looking code: a for-loop calling order.getCustomer().getName() looks like a field access, not N database round trips'
+    ],
+    example: {
+      code: { language: 'java', code:
+`// 1 query: SELECT * FROM orders
+List<Order> orders = orderRepository.findAll();
+
+for (Order order : orders) {
+    // Order.customer is LAZY -> one SELECT per order, N times
+    System.out.println(order.getCustomer().getName());
+}
+// Total: 1 + N queries instead of 1` },
+      note: 'Each getCustomer() call on a distinct lazy proxy issues its own SELECT ... WHERE id = ?.',
+    },
+    remember: [
+      'N+1 requires the association to be LAZY and accessed inside a loop — EAGER "fixes" the symptom by always joining, but only shifts the cost to every query, including ones that never needed it',
+      'Batch fetching, JOIN FETCH, and @EntityGraph are the real fixes — see the Fetch Strategies group'
+    ],
+    diagram: `flowchart LR
+  A[Select all orders] --> B[Loop over orders]
+  B --> C[Select customer for order 1]
+  B --> D[Select customer for order 2]
+  B --> E[Select customer for order N]`,
+    readMinutes: 2,
+    related: ['join-fetch-vs-entitygraph', 'batch-fetching'],
+  },
+  {
+    id: 'detecting-n-plus-one',
+    title: 'Detecting N+1 in Practice',
+    group: 'The N+1 Problem',
+    definition: 'N+1 is diagnosed by counting actual SQL statements per request, not by reading code — enable Hibernate SQL logging or statistics, or a proxy tool like p6spy/datasource-proxy, and look for a suspicious repeated query shape.',
+    whyItMatters: [
+      'Reading entity mappings alone won\'t reveal N+1 — the same LAZY mapping is fine in one code path and a disaster in another depending on whether it\'s accessed inside a loop',
+      'Hibernate\'s statistics (hibernate.generate_statistics=true, SessionFactory.getStatistics()) give exact query counts per session, which is the ground truth a senior engineer checks before optimizing anything'
+    ],
+    remember: [
+      'spring.jpa.show-sql plus format_sql shows raw SQL but not counts or context — p6spy/datasource-proxy or Hibernate statistics are better for spotting repetition',
+      'A quick smell test: log query count for a request and assert it against a fixed expected number in an integration test, so N+1 regressions fail CI instead of surfacing in prod'
+    ],
+    readMinutes: 2,
+  },
+
+  // Group: Fetch Strategies
+  {
+    id: 'join-fetch-vs-entitygraph',
+    title: 'JOIN FETCH vs @EntityGraph',
+    group: 'Fetch Strategies',
+    definition: 'JOIN FETCH in JPQL and @EntityGraph both eagerly load a named association in a single query, but JOIN FETCH is written per-query in JPQL while @EntityGraph is a declarative, reusable annotation applied to a repository method.',
+    whyItMatters: [
+      '@EntityGraph lets a repository method opt into eager loading without hand-writing JPQL, which keeps derived query methods usable while still avoiding N+1',
+      'Both only fetch one collection association safely per query — fetching two collections in the same JOIN FETCH multiplies rows via a cartesian product and risks MultipleBagFetchException'
+    ],
+    example: {
+      code: { language: 'java', code:
+`// JPQL JOIN FETCH
+@Query("SELECT o FROM Order o JOIN FETCH o.customer WHERE o.status = :status")
+List<Order> findByStatusWithCustomer(@Param("status") String status);
+
+// Declarative equivalent
+@EntityGraph(attributePaths = {"customer"})
+List<Order> findByStatus(String status);` },
+    },
+    remember: [
+      '@EntityGraph.type = FETCH overrides LAZY to EAGER for listed attributes only for that call; unlisted associations stay LAZY',
+      'Neither solves N+1 for nested associations two levels deep unless each level is explicitly listed'
+    ],
+    readMinutes: 2,
+    related: ['n-plus-one-problem', 'multiple-bag-fetch-pagination'],
+  },
+  {
+    id: 'batch-fetching',
+    title: 'Batch Fetching (@BatchSize / default_batch_fetch_size)',
+    group: 'Fetch Strategies',
+    definition: 'Batch fetching groups the N follow-up SELECTs from a lazy association into ceil(N/batchSize) queries using WHERE id IN (...), instead of eliminating them like a fetch join does.',
+    whyItMatters: [
+      'Unlike JOIN FETCH, batch fetching keeps associations genuinely lazy and doesn\'t multiply parent rows — it\'s a middle ground that\'s safe with collections and pagination',
+      'hibernate.default_batch_fetch_size sets a global default so you don\'t have to annotate every association with @BatchSize individually'
+    ],
+    example: {
+      code: { language: 'java', code:
+`@OneToMany(mappedBy = "order", fetch = FetchType.LAZY)
+@BatchSize(size = 25)
+private List<OrderItem> items;
+
+// or globally in application.yml:
+// spring.jpa.properties.hibernate.default_batch_fetch_size: 25` },
+      note: 'Accessing items on 100 orders now runs 4 queries (WHERE order_id IN (...25 ids...)) instead of 100.',
+    },
+    remember: [
+      'Trades N+1 for N/batchSize+1 — still not a single query, but bounded and far cheaper than one query per row',
+      'Good default choice when JOIN FETCH isn\'t viable, e.g. multiple collections need to be loaded on the same entity'
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'open-session-in-view',
+    title: 'Open Session In View (OSIV)',
+    group: 'Fetch Strategies',
+    definition: 'OSIV keeps the Persistence Context and its DB connection open for the full HTTP request (through view/serialization), so lazy associations can still be accessed after the service-layer transaction has committed, and Spring Boot enables it by default.',
+    whyItMatters: [
+      'It prevents LazyInitializationException in controllers/serializers, but it does so by masking the real problem — the fetch strategy should have gotten the data during the transaction, not deferred it to rendering time',
+      'Holding a DB connection open for the entire request (including slow external calls, template rendering, JSON serialization) increases connection pool pressure and can exhaust the pool under load'
+    ],
+    remember: [
+      'Many senior teams explicitly set spring.jpa.open-in-view=false to force fetch strategy decisions to be explicit and connections to be released promptly',
+      'Disabling it surfaces every implicit lazy access as a LazyInitializationException immediately in testing rather than as a slow, silent per-request query at the view layer'
+    ],
+    interviewAngle: { q: 'Why is OSIV controversial for a senior team?', a: 'It trades a loud, easy-to-find exception for a silent extra round trip per request, and extends DB connection hold time — a small correctness convenience at a real scalability cost.' },
+    readMinutes: 2,
+    related: ['lazy-initialization-exception'],
+  },
+
+  // Group: Pagination Pitfalls
+  {
+    id: 'multiple-bag-fetch-pagination',
+    title: 'Pagination + JOIN FETCH on a Collection',
+    group: 'Pagination Pitfalls',
+    definition: 'Applying Pageable to a query with JOIN FETCH on a *ToMany collection is unsafe: Hibernate cannot apply LIMIT/OFFSET in SQL because the join multiplies parent rows, so it fetches the whole result set into memory and paginates there, or throws MultipleBagFetchException if two collections are fetched at once.',
+    whyItMatters: [
+      'This is a genuinely dangerous gotcha because it fails silently in small datasets — pagination "works" in dev with 20 rows but loads the entire table into memory in production',
+      'MultipleBagFetchException specifically fires when two List (bag) associations are fetch-joined in the same query, since Hibernate can\'t deterministically reconstruct two independent collections from one flattened join result'
+    ],
+    example: {
+      code: { language: 'java', code:
+`// Dangerous: JOIN FETCH + Pageable on a collection association
+@Query("SELECT o FROM Order o JOIN FETCH o.items WHERE o.status = :s")
+Page<Order> findByStatus(@Param("s") String s, Pageable pageable);
+// Hibernate logs a warning and paginates in memory -> loads full result set` },
+      note: 'Fix: fetch the page of parent IDs first (no join), then a second query with JOIN FETCH WHERE id IN (:ids) — or use @EntityGraph with a *ToOne only, or batch fetching for the collection.',
+    },
+    remember: [
+      'Two-step fix pattern: paginate a plain ID/entity query first, then batch-load associations for just that page',
+      'Use Set instead of List for multiple collections to fetch-join more than one without MultipleBagFetchException, but check for duplicate-row semantics'
+    ],
+    readMinutes: 3,
+    related: ['join-fetch-vs-entitygraph', 'batch-fetching'],
+  },
+
+  // Group: Caching & Batching
+  {
+    id: 'identity-defeats-batch-inserts',
+    title: 'GenerationType.IDENTITY Defeats Batch Inserts',
+    group: 'Caching & Batching',
+    definition: 'JDBC batching (hibernate.jdbc.batch_size) groups multiple INSERT/UPDATE statements into one round trip, but GenerationType.IDENTITY forces Hibernate to execute each insert immediately to retrieve the generated key, disabling batching for inserts on that entity.',
+    whyItMatters: [
+      'This is a direct performance consequence of the ID generation strategy choice covered under entity mapping — IDENTITY is convenient (auto-increment, no extra sequence table) but silently kills insert batching',
+      'Bulk-inserting thousands of entities with IDENTITY runs as thousands of individual round trips even with batch_size configured, which surprises teams that assume the config alone is sufficient'
+    ],
+    remember: [
+      'GenerationType.SEQUENCE (with allocationSize > 1) or TABLE preserves batching because IDs can be pre-allocated before the insert executes',
+      'hibernate.jdbc.batch_size alone does nothing for IDENTITY-keyed entities — the generator strategy has to change too'
+    ],
+    example: {
+      code: { language: 'java', code:
+`// Batching disabled despite batch_size config
+@Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+private Long id;
+
+// Batching works
+@Id @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "order_seq")
+@SequenceGenerator(name = "order_seq", sequenceName = "order_seq", allocationSize = 50)
+private Long id;` },
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'second-level-cache',
+    title: 'Second-Level Cache',
+    group: 'Caching & Batching',
+    definition: 'An optional, SessionFactory-scoped cache (via a provider like Ehcache or Caffeine) that stores entity/collection state across sessions and transactions, distinct from the per-transaction first-level cache (Persistence Context).',
+    whyItMatters: [
+      'It only helps for read-heavy, rarely-changing data accessed by primary key across many independent transactions — reference/lookup tables are the textbook fit, not frequently-updated transactional entities',
+      'Every write anywhere invalidates the cached entry (or risks a stale read in a clustered deployment without a distributed cache), so it introduces real stale-data risk that has to be reasoned about explicitly, not enabled blindly'
+    ],
+    remember: [
+      'Needs a concurrency strategy per entity (READ_ONLY, READ_WRITE, NONSTRICT_READ_WRITE) trading strictness for throughput',
+      'Query result caching layers on top and caches query result sets (lists of IDs), which is even more prone to going stale — it invalidates only via the query cache region, not per-entity writes'
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'dto-projections-performance',
+    title: 'DTO Projections as a Performance Optimization',
+    group: 'Caching & Batching',
+    definition: 'Selecting only the columns a view actually needs (via interface/class projections or a constructor expression) avoids loading full entity graphs and their lazy-association overhead entirely.',
+    whyItMatters: [
+      'A read-only screen that shows 3 fields from a 20-column entity with 4 associations pays for none of the association-loading or persistence-context management if it queries a DTO directly',
+      'DTO projections sidestep LazyInitializationException and N+1 by construction — there\'s no managed entity or proxy left to lazily resolve after the query returns'
+    ],
+    remember: [
+      'Mechanics (interface vs class projections, @Query constructor expressions) are Spring Data JPA basics — the performance motivation here is: use it to cut both the columns fetched and the fetch-strategy risk for read paths',
+      'Not a universal replacement for entities — projections are read-only and bypass the persistence context, so they\'re wrong for anything that needs dirty checking or cascading writes'
+    ],
+    readMinutes: 1,
+  },
+]
+
+const sbSecurityCoreConcepts: ConceptCard[] = [
+  // --- Filter Chain Architecture ---
+  {
+    id: 'security-filter-chain-architecture',
+    title: 'SecurityFilterChain as an Ordered Filter Chain',
+    group: 'Filter Chain Architecture',
+    definition: 'Spring Security is implemented as a chain of Servlet filters, each with a single responsibility, wired into the app\'s existing filter chain via one DelegatingFilterProxy.',
+    whyItMatters: [
+      'Each filter only handles one concern (form login, basic auth, exception translation, authorization) so the chain composes independently instead of one monolithic filter doing everything',
+      'Order matters: authentication filters must run before the authorization filter at the end of the chain (FilterSecurityInterceptor / AuthorizationFilter) so there\'s an Authentication to authorize against',
+    ],
+    remember: [
+      'UsernamePasswordAuthenticationFilter handles form login POSTs; BasicAuthenticationFilter handles the Authorization: Basic header',
+      'ExceptionTranslationFilter catches AuthenticationException/AccessDeniedException thrown deeper in the chain and converts them into a 401 redirect-to-login or a 403',
+      'The last filter in the chain (FilterSecurityInterceptor, or AuthorizationFilter in the newer Lambda DSL) makes the final allow/deny decision',
+    ],
+    diagram: 'flowchart LR\n  req[Request] --> auth[Authentication Filter]\n  auth --> exc[Exception Translation Filter]\n  exc --> authz[Authorization Filter]\n  authz --> app[Controller]',
+    readMinutes: 2,
+    related: ['authentication-vs-authorization', 'securityfilterchain-dsl'],
+  },
+  {
+    id: 'exception-translation-filter',
+    title: 'ExceptionTranslationFilter',
+    group: 'Filter Chain Architecture',
+    definition: 'A dedicated filter that catches AuthenticationException and AccessDeniedException bubbling up from later filters and converts them into the appropriate HTTP response (401 challenge/redirect vs 403).',
+    whyItMatters: [
+      'Keeps error-response formatting out of every individual filter — one place decides whether an unauthenticated request gets redirected to a login page (browser flow) or gets a bare 401 (stateless API flow)',
+    ],
+    remember: [
+      'Unauthenticated + protected resource -> AuthenticationEntryPoint decides the response (redirect for form login, WWW-Authenticate header for basic/bearer)',
+      'Authenticated but insufficient authority -> AccessDeniedHandler decides the response (typically 403)',
+    ],
+    readMinutes: 1,
+  },
+
+  // --- Authentication ---
+  {
+    id: 'authentication-vs-authorization',
+    title: 'Authentication vs Authorization Abstractions',
+    group: 'Authentication',
+    definition: 'Spring Security models "who are you" as an Authentication object held in the SecurityContext, and "what can you do" as a separate authorization decision made later in the chain against that same object.',
+    whyItMatters: [
+      'Authentication holds the principal, credentials, and granted authorities — once set, every downstream filter and your controller code reads identity from the same source of truth instead of re-checking credentials',
+      'Separating the two means you can swap the authorization model (role checks, SpEL, ACLs) without touching how identity was established',
+    ],
+    remember: [
+      'Authentication.getPrincipal() is typically a UserDetails; getAuthorities() is what authorization decisions are made against',
+      'isAuthenticated() being true does not mean authorized — an anonymous user has an Authentication object too (AnonymousAuthenticationFilter)',
+    ],
+    interviewAngle: {
+      q: 'Is an anonymous, unauthenticated request represented by a null Authentication?',
+      a: 'No — Spring Security populates an AnonymousAuthenticationToken so SecurityContextHolder.getContext().getAuthentication() is never null after the filter chain runs, which simplifies downstream null-checks.',
+    },
+    readMinutes: 2,
+    related: ['security-context-holder', 'authenticationmanager-provider'],
+  },
+  {
+    id: 'security-context-holder',
+    title: 'SecurityContextHolder Propagation',
+    group: 'Authentication',
+    definition: 'SecurityContextHolder stores the current Authentication in a ThreadLocal by default, making it accessible anywhere on the request thread without passing it explicitly.',
+    whyItMatters: [
+      'ThreadLocal storage means the security context does NOT automatically propagate to a new thread — spawning a thread, @Async method, or a reactive/WebFlux context needs an explicit strategy (DelegatingSecurityContextExecutor, or SecurityContextHolderStrategy.MODE_INHERITABLETHREADLOCAL) or the principal silently disappears',
+    ],
+    remember: [
+      'Default strategy is MODE_THREADLOCAL; MODE_INHERITABLETHREADLOCAL copies context to child threads; MODE_GLOBAL is a single JVM-wide context (rare)',
+      'The context is populated by SecurityContextHolderFilter (or SecurityContextPersistenceFilter in older versions) near the front of the chain, and cleared at the end of the request',
+    ],
+    readMinutes: 2,
+  },
+  {
+    id: 'authenticationmanager-provider',
+    title: 'AuthenticationManager / AuthenticationProvider / ProviderManager',
+    group: 'Authentication',
+    definition: 'AuthenticationManager is the interface that verifies credentials; its standard implementation, ProviderManager, delegates to an ordered list of AuthenticationProvider beans and accepts the first one that successfully authenticates.',
+    whyItMatters: [
+      'This is the extension point for supporting multiple credential types (username/password, LDAP, pre-authenticated headers, custom tokens) side by side — each provider declares supports() for the Authentication subtype it can handle',
+      'A provider that doesn\'t support a given Authentication type is skipped rather than erroring, so adding a new auth mechanism doesn\'t require touching existing providers',
+    ],
+    remember: [
+      'DaoAuthenticationProvider is the default provider for username/password — it delegates user lookup to UserDetailsService and credential comparison to PasswordEncoder',
+      'A ProviderManager can have a parent AuthenticationManager, letting multiple ProviderManagers share a common fallback',
+    ],
+    readMinutes: 2,
+    related: ['userdetailsservice'],
+  },
+  {
+    id: 'userdetailsservice',
+    title: 'UserDetailsService and UserDetails',
+    group: 'Authentication',
+    definition: 'UserDetailsService is the single-method extension point (loadUserByUsername) for plugging your own user store into authentication; it returns a UserDetails carrying the hashed password, authorities, and account-state flags.',
+    whyItMatters: [
+      'This is the one interface almost every real app implements — everything upstream (DaoAuthenticationProvider, the filter chain) is store-agnostic and works against whatever UserDetails you hand back, whether it\'s backed by JPA, LDAP, or an external API',
+      'The account-state flags (isAccountNonExpired, isAccountNonLocked, isCredentialsNonExpired, isEnabled) let you reject a technically-correct password for a locked or disabled account without touching authentication logic',
+    ],
+    remember: [
+      'loadUserByUsername throwing UsernameNotFoundException and a wrong password should be indistinguishable to the caller — leaking "user not found" vs "bad password" is a user-enumeration vuln',
+      'A custom Authentication.getPrincipal() can be your own domain User type by wrapping/extending UserDetails, avoiding an extra DB lookup in every controller',
+    ],
+    readMinutes: 2,
+    related: ['authenticationmanager-provider', 'password-encoding'],
+  },
+
+  // --- Authorization ---
+  {
+    id: 'method-level-security',
+    title: 'Method-Level Security (@PreAuthorize / @PostAuthorize / @Secured)',
+    group: 'Authorization',
+    definition: 'Method-level annotations evaluate a SpEL authorization expression around a method invocation via an AOP proxy, letting authorization live next to the business logic instead of only at the URL layer.',
+    whyItMatters: [
+      '@PreAuthorize evaluates before the method runs (can reference method arguments, e.g. #id == authentication.principal.id); @PostAuthorize evaluates after, so it can reference the return value — useful for "can this user see THIS specific returned object"',
+      'Because it\'s AOP-proxy-based like @Transactional, self-invocation (calling an @PreAuthorize method from another method in the same class) bypasses the proxy and skips the check entirely',
+    ],
+    remember: [
+      'Requires @EnableMethodSecurity (replaces the older @EnableGlobalMethodSecurity) on a configuration class',
+      '@Secured only supports simple role checks; @PreAuthorize/@PostAuthorize support full SpEL, including custom permission evaluators',
+      'URL-level authorizeHttpRequests rules and method-level annotations are complementary, not redundant — URL rules give a coarse first line of defense even if a method-level check is missing',
+    ],
+    interviewAngle: {
+      q: 'A service method annotated @PreAuthorize is called from another method in the same @Service — does the check run?',
+      a: 'No, if the caller is another method within the same bean — the call bypasses the Spring AOP proxy entirely, the same self-invocation gotcha as @Transactional. It only runs when invoked through the proxy from outside the class (or via self-injection).',
+    },
+    readMinutes: 2,
+  },
+  {
+    id: 'securityfilterchain-dsl',
+    title: 'HttpSecurity DSL and Rule Ordering',
+    group: 'Authorization',
+    definition: 'HttpSecurity is a builder that produces a SecurityFilterChain bean; authorizeHttpRequests rules are evaluated in the order they\'re declared, and the first matching rule wins.',
+    whyItMatters: [
+      'Because the first match wins, rules must go most-specific to least-specific — a broad permitAll("/**") declared before a specific denyAll for an admin path would shadow it and never get evaluated',
+      'The DSL defaults to deny-by-default when you end the chain with anyRequest().authenticated() — anything not explicitly matched still requires authentication, which is the safer failure mode',
+    ],
+    example: {
+      code: {
+        language: 'java',
+        code: `http
+    .authorizeHttpRequests(auth -> auth
+        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+        .requestMatchers("/api/public/**").permitAll()
+        .anyRequest().authenticated()
+    )`,
+      },
+      note: 'Specific admin path matched before the catch-all public path; anyRequest() as the final fallback keeps the default deny posture.',
+    },
+    readMinutes: 2,
+    related: ['common-misconfigurations'],
+  },
+  {
+    id: 'common-misconfigurations',
+    title: 'Common Misconfigurations',
+    group: 'Authorization',
+    definition: 'The classic Spring Security misconfigurations are a permitAll rule matching more than intended, unsecured Actuator endpoints, and disabling CSRF without understanding why it was safe.',
+    whyItMatters: [
+      'A permitAll("/api/users/**") meant only for GET /api/users/register also opens every other verb and sub-path under that prefix unless matchers are scoped by HTTP method too',
+      'Actuator endpoints like /actuator/env or /actuator/heapdump can leak secrets or memory contents if left open — they need their own authorizeHttpRequests rule, they aren\'t secured by default just because the rest of the app is',
+    ],
+    remember: [
+      'Scope requestMatchers by both path AND HTTP method when the intent differs by verb (e.g. GET public, POST/PUT/DELETE authenticated)',
+      'Disabling CSRF is correct for stateless token-authenticated APIs, but wrong for anything still using cookie/session auth from a browser',
+    ],
+    readMinutes: 2,
+    related: ['csrf-protection'],
+  },
+
+  // --- Password Security ---
+  {
+    id: 'password-encoding',
+    title: 'PasswordEncoder and BCrypt',
+    group: 'Password Security',
+    definition: 'PasswordEncoder abstracts one-way password hashing; BCryptPasswordEncoder is the standard choice because it\'s an adaptive algorithm with a tunable work factor that can be raised over time as hardware gets faster.',
+    whyItMatters: [
+      'A plain fast hash (MD5, SHA-256) is intentionally the wrong tool — it\'s designed to be fast, which is exactly what makes brute-forcing leaked hashes cheap; BCrypt is deliberately slow and its cost factor controls how slow',
+      'BCrypt generates and embeds a random salt automatically per password, so two users with the same password never produce the same stored hash — defeats precomputed rainbow-table attacks',
+    ],
+    remember: [
+      'Default work factor (strength) is 10 in BCryptPasswordEncoder; each +1 doubles the hashing cost — tune based on acceptable login latency',
+      'matches(rawPassword, encodedPassword) re-derives the hash using the salt embedded in the stored value — you never decrypt a BCrypt hash, only compare',
+      'DelegatingPasswordEncoder (the default from PasswordEncoderFactories) prefixes stored hashes with {bcrypt} etc., letting you migrate encoding schemes without breaking existing stored passwords',
+    ],
+    readMinutes: 2,
+    related: ['userdetailsservice'],
+  },
+
+  // --- CSRF & Session Management ---
+  {
+    id: 'csrf-protection',
+    title: 'CSRF Protection and When to Disable It',
+    group: 'CSRF & Session Management',
+    definition: 'CSRF protection defends against an attacker\'s page silently submitting authenticated requests using the victim\'s existing browser session cookie, by requiring a per-session token the attacker\'s page can\'t read or guess.',
+    whyItMatters: [
+      'It matters specifically for cookie/session-based browser auth, because the browser attaches cookies automatically to any cross-site request — CSRF exploits that automatic attachment',
+      'It\'s conventionally disabled for stateless REST APIs authenticated by a bearer token in an Authorization header, because that header is never sent automatically by the browser — the attacker\'s page has no way to attach it, so the CSRF attack vector doesn\'t exist for that auth style',
+    ],
+    remember: [
+      'Disabling CSRF is only safe when the API is genuinely stateless token auth end to end — if any endpoint still accepts cookie-based session auth, CSRF disabling reopens that endpoint',
+      'Spring Security enables CSRF by default precisely because the framework can\'t know your auth model — it assumes the riskier default (session-based) unless told otherwise',
+    ],
+    interviewAngle: {
+      q: 'Your team disables CSRF on a new REST API "because it\'s an API." Is that justification sufficient on its own?',
+      a: 'Not by itself — it\'s only safe if the API is truly stateless and authenticates via a header-based token, never falling back to cookie/session auth for any client (including browser-based ones). If a SPA still relies on a session cookie for any part of the flow, disabling CSRF reintroduces the vulnerability.',
+    },
+    readMinutes: 2,
+    related: ['session-management', 'cors-vs-csrf'],
+  },
+  {
+    id: 'session-management',
+    title: 'Session Creation Policy: Stateful vs Stateless',
+    group: 'CSRF & Session Management',
+    definition: 'SessionCreationPolicy controls whether Spring Security creates/uses an HttpSession to persist the SecurityContext between requests, versus re-authenticating every request from a self-contained credential like a token.',
+    whyItMatters: [
+      'STATELESS (typical for token-based REST APIs) means no server-side session state, which simplifies horizontal scaling — any instance can handle any request without session affinity or a shared session store',
+      'Stateful session auth trades that scalability for simpler logout/revocation semantics — invalidating a session server-side immediately kills access, whereas a stateless bearer token stays valid until it expires unless you add a revocation mechanism',
+    ],
+    remember: [
+      'SessionCreationPolicy.STATELESS also implies Spring Security won\'t create a session even if something else in the app tries to use one for security purposes',
+      'Going stateless is what typically pairs with disabling CSRF and using a bearer token (JWT or opaque) instead of a session cookie',
+    ],
+    readMinutes: 2,
+    related: ['csrf-protection'],
+  },
+  {
+    id: 'cors-vs-csrf',
+    title: 'CORS vs CSRF — Not the Same Thing',
+    group: 'CSRF & Session Management',
+    definition: 'CORS is a browser mechanism that relaxes the same-origin policy to allow a page from one origin to call an API on another; CSRF is an attack Spring Security defends against with anti-forgery tokens — they address different problems and neither one prevents the other.',
+    whyItMatters: [
+      'A misconfigured CORS policy (e.g. Access-Control-Allow-Origin: * combined with allowing credentials) doesn\'t cause CSRF, but it can widen who\'s allowed to read cross-origin responses, which is a distinct data-exposure risk',
+      'CSRF tokens protect state-changing requests regardless of CORS config, because classic CSRF attacks (a hidden form auto-submitting) don\'t need CORS permission at all — the browser will send the cross-site request; CORS only governs whether the attacker\'s script can read the response',
+    ],
+    remember: [
+      'CORS config in Spring is typically the @CrossOrigin annotation or a CorsConfigurationSource bean at the MVC layer — mechanics covered under sb-mvc, not repeated here',
+      'Locking down CORS does not substitute for CSRF protection on cookie-authenticated endpoints, and vice versa',
+    ],
+    readMinutes: 2,
+    related: ['csrf-protection'],
+  },
+
+  // --- Configuration Judgment ---
+  {
+    id: 'auth-mechanisms-forward-reference',
+    title: 'Pluggable Authentication Mechanisms (Bridge to OAuth2/JWT)',
+    group: 'Configuration Judgment',
+    definition: 'Spring Security\'s filter-and-provider architecture is deliberately mechanism-agnostic, which is why form login, HTTP Basic, JWT bearer tokens, and full OAuth2/OIDC flows can all plug into the same chain via their own filter and AuthenticationProvider.',
+    whyItMatters: [
+      'Understanding the chain/provider abstraction is what lets you reason about a new auth mechanism (like OAuth2 resource server JWT validation) without learning a parallel system — it\'s the same filter chain with a different filter and provider swapped in',
+    ],
+    remember: [
+      'Token structure, validation, and OAuth2 flow details are their own deep subtopic — here it\'s enough to know these mechanisms are implemented as additional filters/providers, not a bolt-on separate from the architecture covered above',
+    ],
+    readMinutes: 1,
+  },
+]
+
+
 export const springBootConcepts: ConceptSection[] = [
+  {
+    id: 'sb-concept-transactions',
+    subtopic: 'sb-transactions',
+    title: 'Transaction Management',
+    intro: 'How @Transactional actually works under the hood — proxy-based interception, propagation/isolation semantics, and the self-invocation and rollback pitfalls that bite in production.',
+    concepts: sbTransactionsConcepts,
+  },
+  {
+    id: 'sb-concept-jpa-performance',
+    subtopic: 'sb-jpa-performance',
+    title: 'JPA Performance & Pitfalls',
+    intro: 'Where JPA performance actually goes wrong — N+1 queries, lazy-loading traps, fetch strategies, and the batching/projection techniques used to fix them.',
+    concepts: sbJpaPerformanceConcepts,
+  },
+  {
+    id: 'sb-concept-security-core',
+    subtopic: 'sb-security-core',
+    title: 'Spring Security Fundamentals',
+    intro: 'The Spring Security filter chain, authentication/authorization mechanics, and the core configuration decisions that shape how a Boot app is secured.',
+    concepts: sbSecurityCoreConcepts,
+  },
   {
     id: 'sb-concept-ioc-di',
     subtopic: 'sb-ioc-di',
