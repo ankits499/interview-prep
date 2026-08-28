@@ -45,8 +45,8 @@ export function getConceptsForTopic(topicId: string): ConceptSection[] {
   return CONCEPTS_BY_TOPIC[topicId] ?? []
 }
 
-export function getQuestionById(questionId: string): Question | undefined {
-  return ALL_QUESTIONS.find((q) => q.id === questionId)
+export function getQuestionById(topicId: string, questionId: string): Question | undefined {
+  return getQuestionsForTopic(topicId).find((q) => q.id === questionId)
 }
 
 export function getConceptsForSubtopic(topicId: string, subtopicId: string): ConceptSection[] {

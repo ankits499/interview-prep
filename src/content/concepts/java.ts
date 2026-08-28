@@ -3728,7 +3728,7 @@ public class MyBenchmark {
 
   // Group: Latency Engineering
   {
-    id: 'throughput-vs-latency',
+    id: 'jvm-throughput-vs-latency',
     title: 'Throughput vs Latency Tradeoffs',
     group: 'Latency Engineering',
     definition: 'Optimizing for maximum operations-per-second and optimizing for predictable per-operation response time are frequently in tension — batching, larger buffers, and background compaction all improve throughput while adding variance that hurts tail latency.',
@@ -3755,7 +3755,7 @@ public class MyBenchmark {
       'Reducing allocation rate is a lever every collector benefits from; picking a different collector is a separate, complementary lever',
     ],
     readMinutes: 2,
-    related: ['throughput-vs-latency', 'jfr'],
+    related: ['jvm-throughput-vs-latency', 'jfr'],
   },
   {
     id: 'method-inlining-limits-warmup-interaction',
@@ -3770,7 +3770,7 @@ public class MyBenchmark {
       'Synthetic warm-up traffic before joining a load balancer is a standard mitigation for user-facing latency-sensitive services',
     ],
     readMinutes: 2,
-    related: ['jit-warmup-tiered-compilation', 'throughput-vs-latency'],
+    related: ['jit-warmup-tiered-compilation', 'jvm-throughput-vs-latency'],
   },
 ]
 

@@ -11,7 +11,7 @@ export function QuestionPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const topic = getTopicMeta(topicId)
-  const question = getQuestionById(questionId)
+  const question = getQuestionById(topicId, questionId)
   const subtopicId = question?.subtopic ?? ''
   const subtopic = getSubtopicMeta(topicId, subtopicId)
   const allQuestions = getQuestionsForSubtopic(topicId, subtopicId)
@@ -37,7 +37,11 @@ export function QuestionPage() {
 
   useEffect(() => {
     function handler(e: KeyboardEvent) {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (
+        e.target instanceof HTMLElement &&
+        (e.target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName))
+      ) return
       if (e.key === 'j' || e.key === 'n') goTo(index + 1)
       if (e.key === 'k' || e.key === 'p') goTo(index - 1)
     }
