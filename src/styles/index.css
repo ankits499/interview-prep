@@ -66,3 +66,59 @@
   .text-\[11px\] { font-size: 12.5px; }
   .text-xs { font-size: 13px; line-height: 1.1rem; }
 }
+
+/* Low-blur glass relies on a bright upper bevel and darker lower rim for
+   depth, keeping the page behind the floating mobile navigation legible. */
+.bottom-nav-glass {
+  background-color: color-mix(in srgb, var(--color-surface) 12%, transparent);
+  border: 0;
+  backdrop-filter: blur(8px) saturate(150%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 12%),
+    inset 1.8px 3px 0 -2px rgb(255 255 255 / 75%),
+    inset -2px -2px 0 -2px rgb(255 255 255 / 55%),
+    inset -3px -8px 1px -6px rgb(255 255 255 / 42%),
+    inset -0.3px -1px 4px rgb(0 0 0 / 12%),
+    inset -1.5px 2.5px 0 -2px rgb(0 0 0 / 16%),
+    inset 2px -6.5px 1px -4px rgb(0 0 0 / 10%),
+    0 1px 5px rgb(0 0 0 / 10%),
+    0 8px 20px rgb(0 0 0 / 10%);
+}
+
+.bottom-nav-item-active {
+  background-color: color-mix(in srgb, var(--color-surface) 28%, transparent);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 10%),
+    inset 2px 1px 0 -1px rgb(255 255 255 / 62%),
+    inset -1.5px -1px 0 -1px rgb(255 255 255 / 48%),
+    inset -2px -6px 1px -5px rgb(255 255 255 / 34%),
+    inset -1px 2px 3px -1px rgb(0 0 0 / 14%),
+    inset 0 -4px 1px -2px rgb(0 0 0 / 8%),
+    0 3px 6px rgb(0 0 0 / 7%);
+}
+
+.dark .bottom-nav-glass {
+  background-color: color-mix(in srgb, var(--color-surface) 12%, transparent);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 8%),
+    inset 1.8px 3px 0 -2px rgb(255 255 255 / 24%),
+    inset -2px -2px 0 -2px rgb(255 255 255 / 18%),
+    inset -3px -8px 1px -6px rgb(255 255 255 / 12%),
+    inset -0.3px -1px 4px rgb(0 0 0 / 24%),
+    inset -1.5px 2.5px 0 -2px rgb(0 0 0 / 34%),
+    inset 2px -6.5px 1px -4px rgb(0 0 0 / 20%),
+    0 1px 5px rgb(0 0 0 / 20%),
+    0 8px 22px rgb(0 0 0 / 24%);
+}
+
+.dark .bottom-nav-item-active {
+  background-color: rgb(255 255 255 / 7%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 7%),
+    inset 2px 1px 0 -1px rgb(255 255 255 / 20%),
+    inset -1.5px -1px 0 -1px rgb(255 255 255 / 13%),
+    inset -1px 2px 3px -1px rgb(0 0 0 / 28%),
+    inset 0 -4px 1px -2px rgb(0 0 0 / 18%),
+    0 3px 7px rgb(0 0 0 / 16%);
+}
