@@ -35,7 +35,7 @@ export function Layout() {
       <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
       <div className="flex h-screen min-w-0 flex-1 flex-col">
         <Header sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
-        <main ref={mainRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-24 pt-6 md:px-8 lg:pb-10">
+        <main ref={mainRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-28 pt-6 md:px-8 lg:pb-10">
           <Outlet />
         </main>
       </div>
