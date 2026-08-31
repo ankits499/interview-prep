@@ -1,49 +1,39 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useMemo } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { databaseReady, db } from '../lib/db'
 import type { ProgressStatus } from '../types'
-
-const STORAGE_KEY = 'interview-prep-progress'
 
 type ProgressMap = Record<string, ProgressStatus>
 
-function loadProgress(): ProgressMap {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as ProgressMap) : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveProgress(map: ProgressMap) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
-  } catch {
-    // ignore write failures (e.g. private browsing storage limits)
-  }
-}
-
 export function useProgress() {
-  const [progress, setProgress] = useState<ProgressMap>(() => loadProgress())
-
-  useEffect(() => {
-    saveProgress(progress)
-  }, [progress])
+  const records = useLiveQuery(() => db.questionProgress.toArray(), [], [])
+  const progress = useMemo<ProgressMap>(
+    () => Object.fromEntries(records.map(({ questionId, status }) => [questionId, status])),
+    [records],
+  )
 
   const getStatus = useCallback((questionId: string): ProgressStatus => progress[questionId] ?? 'none', [progress])
 
-  const setStatus = useCallback((questionId: string, status: ProgressStatus) => {
-    setProgress((prev) => ({ ...prev, [questionId]: status }))
+  const setStatus = useCallback(async (questionId: string, status: ProgressStatus) => {
+    await databaseReady
+    if (status === 'none') {
+      await db.questionProgress.delete(questionId)
+      return
+    }
+    await db.questionProgress.put({ questionId, status, updatedAt: new Date().toISOString() })
   }, [])
 
-  const toggleStatus = useCallback(
-    (questionId: string, status: ProgressStatus) => {
-      setProgress((prev) => ({
-        ...prev,
-        [questionId]: prev[questionId] === status ? 'none' : status,
-      }))
-    },
-    [],
-  )
+  const toggleStatus = useCallback(async (questionId: string, status: ProgressStatus) => {
+    await databaseReady
+    await db.transaction('rw', db.questionProgress, async () => {
+      const current = await db.questionProgress.get(questionId)
+      if (current?.status === status || status === 'none') {
+        await db.questionProgress.delete(questionId)
+      } else {
+        await db.questionProgress.put({ questionId, status, updatedAt: new Date().toISOString() })
+      }
+    })
+  }, [])
 
   return { progress, getStatus, setStatus, toggleStatus }
 }

@@ -1,50 +1,25 @@
-import { useCallback, useSyncExternalStore } from 'react'
-
-const STORAGE_KEY = 'interview-prep-concepts-reviewed'
-
-function load(): Record<string, true> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as Record<string, true>) : {}
-  } catch {
-    return {}
-  }
-}
-
-let reviewed: Record<string, true> = load()
-const listeners = new Set<() => void>()
-
-function save() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(reviewed))
-  } catch {
-    // ignore
-  }
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
-
-function getSnapshot() {
-  return reviewed
-}
+import { useCallback, useMemo } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { databaseReady, db } from '../lib/db'
 
 export function useConceptProgress() {
-  const map = useSyncExternalStore(subscribe, getSnapshot)
+  const records = useLiveQuery(() => db.conceptProgress.toArray(), [], [])
+  const map = useMemo<Record<string, true>>(
+    () => Object.fromEntries(records.map(({ conceptId }) => [conceptId, true])),
+    [records],
+  )
 
   const isReviewed = useCallback((id: string) => Boolean(map[id]), [map])
 
-  const toggleReviewed = useCallback((id: string) => {
-    reviewed = { ...reviewed }
-    if (reviewed[id]) {
-      delete reviewed[id]
-    } else {
-      reviewed[id] = true
-    }
-    save()
-    listeners.forEach((l) => l())
+  const toggleReviewed = useCallback(async (conceptId: string) => {
+    await databaseReady
+    await db.transaction('rw', db.conceptProgress, async () => {
+      if (await db.conceptProgress.get(conceptId)) {
+        await db.conceptProgress.delete(conceptId)
+      } else {
+        await db.conceptProgress.put({ conceptId, reviewedAt: new Date().toISOString() })
+      }
+    })
   }, [])
 
   return { reviewedMap: map, isReviewed, toggleReviewed }
