@@ -11,16 +11,14 @@ export function useConceptProgress() {
 
   const isReviewed = useCallback((id: string) => Boolean(map[id]), [map])
 
-  const toggleReviewed = useCallback(async (conceptId: string) => {
+  const setReviewed = useCallback(async (conceptId: string, reviewed: boolean) => {
     await databaseReady
-    await db.transaction('rw', db.conceptProgress, async () => {
-      if (await db.conceptProgress.get(conceptId)) {
-        await db.conceptProgress.delete(conceptId)
-      } else {
-        await db.conceptProgress.put({ conceptId, reviewedAt: new Date().toISOString() })
-      }
-    })
+    if (reviewed) {
+      await db.conceptProgress.put({ conceptId, reviewedAt: new Date().toISOString() })
+    } else {
+      await db.conceptProgress.delete(conceptId)
+    }
   }, [])
 
-  return { reviewedMap: map, isReviewed, toggleReviewed }
+  return { reviewedMap: map, isReviewed, setReviewed }
 }

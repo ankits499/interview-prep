@@ -7,7 +7,7 @@ import { ComparisonTable } from './ComparisonTable'
 import { MermaidDiagram } from './MermaidDiagram'
 
 export function ConceptCardView({ concept, related }: { concept: ConceptCard; related?: { id: string; title: string }[] }) {
-  const { isReviewed, toggleReviewed } = useConceptProgress()
+  const { isReviewed, setReviewed } = useConceptProgress()
   const reviewed = isReviewed(concept.id)
   const importance = concept.importance ?? 'useful'
   const importanceLabel = importance === 'must-know' ? 'Must know' : importance === 'deep-dive' ? 'Deep dive' : 'Useful'
@@ -30,7 +30,7 @@ export function ConceptCardView({ concept, related }: { concept: ConceptCard; re
           </span>
         </div>
         <button
-          onClick={() => toggleReviewed(concept.id)}
+          onClick={() => void setReviewed(concept.id, !reviewed)}
           aria-pressed={reviewed}
           className={`flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-wide transition-colors ${
             reviewed ? 'border-accent bg-accent-soft text-accent' : 'border-border text-ink-muted hover:text-ink'
