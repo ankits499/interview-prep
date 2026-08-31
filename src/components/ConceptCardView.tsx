@@ -3,16 +3,32 @@ import type { ConceptCard } from '../types'
 import { useConceptProgress } from '../hooks/useConceptProgress'
 import { scrollToId } from '../lib/scrollToId'
 import { CodeBlock } from './CodeBlock'
+import { ComparisonTable } from './ComparisonTable'
 import { MermaidDiagram } from './MermaidDiagram'
 
 export function ConceptCardView({ concept, related }: { concept: ConceptCard; related?: { id: string; title: string }[] }) {
   const { isReviewed, toggleReviewed } = useConceptProgress()
   const reviewed = isReviewed(concept.id)
+  const importance = concept.importance ?? 'useful'
+  const importanceLabel = importance === 'must-know' ? 'Must know' : importance === 'deep-dive' ? 'Deep dive' : 'Useful'
 
   return (
     <section id={concept.id} className="scroll-mt-6 border-b border-border py-7 first:pt-0 last:border-b-0">
       <div className="flex max-w-[65ch] items-start justify-between gap-4">
-        <h3 className="text-base font-semibold text-ink">{concept.title}</h3>
+        <div>
+          <h3 className="text-base font-semibold text-ink">{concept.title}</h3>
+          <span
+            className={`mt-1 inline-block rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide ${
+              importance === 'must-know'
+                ? 'border-accent bg-accent-soft text-accent'
+                : importance === 'deep-dive'
+                  ? 'border-border text-ink-muted'
+                  : 'border-border bg-surface text-ink-muted'
+            }`}
+          >
+            {importanceLabel}
+          </span>
+        </div>
         <button
           onClick={() => toggleReviewed(concept.id)}
           aria-pressed={reviewed}
@@ -54,6 +70,8 @@ export function ConceptCardView({ concept, related }: { concept: ConceptCard; re
           <MermaidDiagram code={concept.diagram} />
         </div>
       )}
+
+      {concept.comparison && <ComparisonTable comparison={concept.comparison} />}
 
       {concept.remember && concept.remember.length > 0 && (
         <div className="mt-4 max-w-[65ch]">

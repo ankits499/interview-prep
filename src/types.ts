@@ -40,6 +40,14 @@ export interface ConceptInterviewAngle {
   a: string
 }
 
+export type ConceptImportance = 'must-know' | 'useful' | 'deep-dive'
+
+export interface ConceptComparison {
+  columns: string[]
+  rows: string[][]
+  takeaway?: string
+}
+
 /**
  * One atomic, scannable unit of study material — "understand in 1-3 minutes, remember the key
  * idea, see a small example, move on." A subtopic is 15-30 of these, not a handful of long essays.
@@ -49,6 +57,8 @@ export interface ConceptCard {
   title: string
   /** Groups cards into a learning progression within the subtopic (e.g. "Foundations", "OOP Pillars") — order of first appearance in the array sets the group order shown. */
   group: string
+  /** Interview relevance within a subtopic. Cards without a value default to useful. */
+  importance?: ConceptImportance
   /** One sentence: what it is and why it exists. Not a paragraph. */
   definition: string
   /** 1-3 short bullets: the practical reason this matters, not a restatement of the definition. */
@@ -62,6 +72,8 @@ export interface ConceptCard {
   related?: string[]
   /** Mermaid diagram syntax — rare; only when a picture genuinely beats prose. Keep it small. */
   diagram?: string
+  /** Structured comparison rendered as an accessible, responsive table. */
+  comparison?: ConceptComparison
   /** Rough reading time in minutes, shown in the scan index (e.g. 2 or 3). */
   readMinutes?: number
 }

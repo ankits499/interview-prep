@@ -1384,6 +1384,7 @@ const collectionsConcepts: ConceptCard[] = [
   id: 'arraylist',
   title: 'ArrayList',
   group: 'List Implementations',
+  importance: 'must-know',
   definition: 'A resizable array — contiguous backing storage that grows (1.5x) when it runs out of capacity.',
   example: {
     code: { language: 'java', code: `List<String> list = new ArrayList<>();\nlist.add("a");        // O(1) amortized\nlist.get(0);           // O(1) — direct index into the array\nlist.add(0, "z");      // O(n) — shifts every element right` },
@@ -1396,6 +1397,15 @@ const collectionsConcepts: ConceptCard[] = [
   interviewAngle: { q: 'Why does ArrayList grow by 1.5x instead of doubling?', a: 'A design tradeoff, not a hard rule — smaller growth factor wastes less memory on over-allocation at the cost of slightly more frequent resizes; doubling (used by HashMap) favors fewer resizes over memory tightness.' },
   readMinutes: 2,
   related: ['linkedlist', 'list-resizing-cost'],
+  comparison: {
+    columns: ['Choice', 'Indexed access', 'Insert at head', 'Memory', 'Best use'],
+    rows: [
+      ['ArrayList', 'O(1)', 'O(n)', 'Compact array', 'Default general-purpose list'],
+      ['LinkedList', 'O(n)', 'O(1)', 'Node and pointer overhead', 'Rare iterator-based insertion'],
+      ['ArrayDeque', 'No indexed access', 'O(1)', 'Compact array', 'Queue or stack'],
+    ],
+    takeaway: 'Default to ArrayList for a List and ArrayDeque for a queue or stack. LinkedList is rarely the best production choice.',
+  },
 },
 {
   id: 'linkedlist',
@@ -2250,6 +2260,7 @@ const locksConcepts: ConceptCard[] = [
     id: 'reentrant-lock',
     title: 'ReentrantLock',
     group: 'Explicit Locks',
+    importance: 'must-know',
     definition: 'An explicit, reentrant mutual-exclusion lock implementing the Lock interface, offering everything synchronized does plus tryLock, lockInterruptibly, and configurable fairness.',
     whyItMatters: [
       'Unlike synchronized, acquisition and release are separate statements, so a forgotten unlock leaks the lock forever instead of the compiler enforcing release',
@@ -2278,6 +2289,17 @@ try {
     },
     readMinutes: 2,
     related: ['try-lock', 'lock-interruptibly', 'lock-fairness'],
+    comparison: {
+      columns: ['Feature', 'synchronized', 'ReentrantLock', 'ReadWriteLock'],
+      rows: [
+        ['Release', 'Automatic', 'Manual in finally', 'Manual in finally'],
+        ['Timed attempt', 'No', 'Yes', 'Yes'],
+        ['Interruptible wait', 'No', 'Yes', 'Yes'],
+        ['Concurrent readers', 'No', 'No', 'Yes'],
+        ['Typical use', 'Simple critical section', 'Advanced lock control', 'Long read-heavy work'],
+      ],
+      takeaway: 'Use synchronized by default. Choose an explicit lock only when its extra control solves a measured requirement.',
+    },
   },
   {
     id: 'try-lock',
@@ -2324,6 +2346,7 @@ try {
     id: 'lock-fairness',
     title: 'Lock Fairness Policy',
     group: 'Explicit Locks',
+    importance: 'deep-dive',
     definition: 'ReentrantLock (and ReentrantReadWriteLock) can be constructed with fair=true to grant the lock to the longest-waiting thread instead of allowing barging.',
     whyItMatters: [
       'Fair mode prevents thread starvation under sustained contention, but costs significant throughput — enforcing strict queue order defeats optimizations like allowing a thread already on the CPU to grab a just-released lock',

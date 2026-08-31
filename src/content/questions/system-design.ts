@@ -666,7 +666,8 @@ export const systemDesignQuestions: Question[] = [
   {
     id: 'sd-sql-q7',
     question: 'A startup wants to use DynamoDB for everything because "it\'s what scales." What questions would you ask before agreeing?',
-    shortAnswer: 'Whether their access patterns are actually known and stable enough to model up front (DynamoDB requires this far more than SQL), whether they need multi-item transactions or ad-hoc queries across attributes (DynamoDB\'s secondary index and transaction support is more limited than a relational database\'s), and whether their actual scale even needs it yet — a single well-tuned relational database handles far more load than most systems ever reach, and premature adoption of a key-value store just trades away query flexibility for scaling headroom they may not need for years.',
+    shortAnswer: 'Ask about known access patterns, transaction and ad-hoc query needs, expected scale, and team expertise. DynamoDB trades query flexibility for predictable horizontal scale.',
+    detailedAnswer: 'DynamoDB works best when access patterns are known before modeling and can be served by primary keys or planned secondary indexes. Check whether the product needs flexible queries, multi-item relational invariants, or a scale that a well-tuned relational database already handles. Also include operational familiarity and migration cost; unused scaling headroom does not justify a poorer data model.',
     topic: 'system-design',
     subtopic: 'sd-sql-vs-nosql',
     difficulty: 'Intermediate',

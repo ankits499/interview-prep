@@ -1418,7 +1418,8 @@ export const javaQuestions: Question[] = [
   {
     id: 'java-jmm-q12',
     question: 'Thread A does two writes in order: `x = 1;` then `volatile flag = true;` (flag is a distinct volatile field from x). Is thread A\'s write to x guaranteed visible to any other thread that observes flag == true, even if that thread never touches flag itself again afterward — and does the reverse hold, that a later read of flag by thread A is guaranteed to still be true?',
-    shortAnswer: 'Yes for the first part: the write to x happens-before the volatile write to flag by program order, and the volatile write happens-before any read of flag that observes true, so transitively any thread that sees flag == true is guaranteed to see x == 1. The second part is a different question with no such guarantee — the JMM says nothing about a volatile field staying at a particular value; another thread could set flag back to false at any point, and there\'s no rule forcing thread A\'s own later read to agree with what it wrote earlier if a race is in play.',
+    shortAnswer: 'Seeing volatile flag == true guarantees visibility of the earlier x = 1 write through happens-before. It does not guarantee flag remains true; another thread may change it.',
+    detailedAnswer: 'Program order places x = 1 before the volatile write. A read that observes that volatile write creates a happens-before edge, so the earlier x write is visible transitively. Volatile provides visibility and ordering, not ownership or permanence: another thread can write false later, and a racing read may observe that newer value.',
     topic: 'java',
     subtopic: 'jmm',
     difficulty: 'Expert',
@@ -1430,7 +1431,7 @@ export const javaQuestions: Question[] = [
   {
     id: 'java-jmm-q3',
     question: 'Why would you mark a shared, non-volatile `long` counter field as volatile even in a scenario where you don\'t actually need cross-thread visibility of updates for correctness — just that reads never return a garbage value?',
-    shortAnswer: 'Without volatile, the JLS does not guarantee that a 64-bit long or double write is atomic — historically and on some JVM/platform combinations it could be split into two 32-bit writes, so a concurrent reader could observe a "torn" value made of half the old bits and half the new bits, which is neither the old value nor the new one. Marking the field volatile forces the write (and read) to be a single atomic 64-bit operation, eliminating tearing, independent of whether you also need visibility ordering.',
+    shortAnswer: 'Volatile guarantees atomic reads and writes for long and double, preventing a reader from seeing half of the old value and half of the new one.',
     detailedAnswer: 'This is a narrow but real gotcha specific to long and double — every other primitive type (int, boolean, reference, etc.) is guaranteed atomic for read/write by the JLS even without volatile. The risk is concentrated on 64-bit values because a 32-bit JVM (or certain non-mainstream 64-bit implementations) may implement the write as two separate 32-bit stores. In practice, on essentially all production 64-bit JVMs on common hardware today, longs and doubles are written atomically anyway — but that\'s a platform characteristic, not a spec guarantee for non-volatile fields, so code that must be portable and provably correct should not rely on it. volatile long also comes bundled with full visibility/ordering semantics as a side effect, which is usually desirable anyway.',
     keyPoints: [
       'Tearing risk is unique to long/double among primitives — the JLS carves out an exception for them specifically',

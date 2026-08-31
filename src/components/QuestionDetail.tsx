@@ -1,4 +1,5 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronLeft, ChevronRight, Eye } from 'lucide-react'
 import type { Question } from '../types'
 import { useProgress } from '../hooks/useProgress'
 import { DifficultyBadge, SeniorityBadge } from './Badges'
@@ -15,6 +16,8 @@ interface Props {
 export function QuestionDetail({ question, onPrev, onNext }: Props) {
   const { getStatus, toggleStatus } = useProgress()
   const status = getStatus(question.id)
+  const [revealedQuestionId, setRevealedQuestionId] = useState<string | null>(null)
+  const answerRevealed = revealedQuestionId === question.id
 
   return (
     <div className="max-w-[70ch]">
@@ -28,41 +31,55 @@ export function QuestionDetail({ question, onPrev, onNext }: Props) {
 
       <h1 className="text-lg font-semibold leading-snug text-ink md:text-xl">{question.question}</h1>
 
-      <div className="mt-4 rounded-md border-l-2 border-accent bg-accent-soft px-4 py-3">
-        <p className="font-mono text-[10px] uppercase tracking-wide text-accent">Short answer</p>
-        <p className="mt-1 text-sm leading-relaxed text-ink">{question.shortAnswer}</p>
-      </div>
+      {!answerRevealed ? (
+        <div className="mt-5 rounded-md border border-border bg-surface p-4">
+          <p className="text-sm text-ink-muted">Answer aloud first. Aim for a clear conclusion, mechanism, and trade-off.</p>
+          <button
+            onClick={() => setRevealedQuestionId(question.id)}
+            className="mt-3 flex min-h-11 items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+          >
+            <Eye size={16} /> Reveal answer
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="mt-4 rounded-md border-l-2 border-accent bg-accent-soft px-4 py-3">
+            <p className="font-mono text-[10px] uppercase tracking-wide text-accent">Short answer</p>
+            <p className="mt-1 text-sm leading-relaxed text-ink">{question.shortAnswer}</p>
+          </div>
 
-      <div className="mt-4">
-        {question.keyPoints && question.keyPoints.length > 0 && (
-          <Disclosure label="Key points">
-            <ul className="list-disc space-y-1 pl-5">
-              {question.keyPoints.map((p, i) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          </Disclosure>
-        )}
-        {question.detailedAnswer && <Disclosure label="Detailed answer">{question.detailedAnswer}</Disclosure>}
-        {question.seniorFollowUps && question.seniorFollowUps.length > 0 && (
-          <Disclosure label="Senior follow-ups">
-            <ul className="list-disc space-y-1 pl-5">
-              {question.seniorFollowUps.map((p, i) => (
-                <li key={i}>{p}</li>
-              ))}
-            </ul>
-          </Disclosure>
-        )}
-        {question.example && (
-          <Disclosure label="Example">
-            {question.example.includes('\n') || question.example.length > 60 ? (
-              <CodeBlock language="text" code={question.example} />
-            ) : (
-              question.example
+          <div className="mt-4">
+            {question.keyPoints && question.keyPoints.length > 0 && (
+              <Disclosure label="Key points">
+                <ul className="list-disc space-y-1 pl-5">
+                  {question.keyPoints.map((p, i) => (
+                    <li key={i}>{p}</li>
+                  ))}
+                </ul>
+              </Disclosure>
             )}
-          </Disclosure>
-        )}
-      </div>
+            {question.detailedAnswer && <Disclosure label="Detailed answer">{question.detailedAnswer}</Disclosure>}
+            {question.seniorFollowUps && question.seniorFollowUps.length > 0 && (
+              <Disclosure label="Senior follow-ups">
+                <ul className="list-disc space-y-1 pl-5">
+                  {question.seniorFollowUps.map((p, i) => (
+                    <li key={i}>{p}</li>
+                  ))}
+                </ul>
+              </Disclosure>
+            )}
+            {question.example && (
+              <Disclosure label="Example">
+                {question.example.includes('\n') || question.example.length > 60 ? (
+                  <CodeBlock language="text" code={question.example} />
+                ) : (
+                  question.example
+                )}
+              </Disclosure>
+            )}
+          </div>
+        </>
+      )}
 
       <div className="mt-6 flex items-center justify-between border-t border-border pt-4">
         <StatusControls status={status} onToggle={(s) => toggleStatus(question.id, s)} />

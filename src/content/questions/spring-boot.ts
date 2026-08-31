@@ -984,7 +984,8 @@ export const springBootQuestions: Question[] = [
   {
     id: 'sb-tx-q10',
     question: 'Your integration test is annotated @Transactional and verifies that a REQUIRES_NEW audit write survived a simulated failure in the outer operation, but the test framework\'s auto-rollback makes you unsure whether you\'re actually testing the right thing. What\'s going on?',
-    shortAnswer: 'Spring\'s test support wraps a @Transactional test method in its own transaction that rolls back at the end of the test by default — but a REQUIRES_NEW call inside the test still runs and commits in its own separate physical transaction, independent of the test\'s wrapping transaction. So the audit write really did commit for real during the test (visible to other connections while the test runs), and only the test\'s own outer transaction rolls back afterward. This is actually the right way to verify REQUIRES_NEW behavior — you\'d query the audit table (outside the test transaction, e.g. via a separate connection or after using @Commit) to confirm it persisted.',
+    shortAnswer: 'REQUIRES_NEW commits independently from the test transaction, so the test rollback does not remove its audit row. Verify it through a separate transaction or connection.',
+    detailedAnswer: 'Spring wraps a @Transactional test in an outer transaction that normally rolls back after the test. A REQUIRES_NEW method suspends that transaction, opens and commits a separate physical transaction, then resumes the test transaction. The audit row therefore persists. Query it outside the wrapping transaction, or use an explicit commit boundary, to verify the behavior accurately.',
     topic: 'spring-boot',
     subtopic: 'sb-transactions',
     difficulty: 'Advanced',
@@ -994,7 +995,8 @@ export const springBootQuestions: Question[] = [
   {
     id: 'sb-tx-q11',
     question: 'A service needs to atomically update its own database and publish a message to another system as one unit — the classic "dual write" problem. Would you reach for JTA/XA transactions in a modern Spring Boot microservice?',
-    shortAnswer: 'Generally no. JTA/XA can technically coordinate a two-phase commit across the database and an XA-capable message broker, but it adds a transaction coordinator, requires XA-compliant drivers, and holds locks across both resources for the duration of a comparatively slow 2PC — real operational cost for a rarely-needed guarantee. Most modern systems instead accept eventual consistency: write to the local database and a local outbox table in one normal local transaction, then have a separate process reliably relay outbox rows to the message system (the outbox/Saga pattern), avoiding cross-resource coordination entirely.',
+    shortAnswer: 'Usually no. Prefer a transactional outbox: commit business data and an outbox row together, then publish asynchronously. XA offers atomicity but adds coordination, lock time, and operational cost.',
+    detailedAnswer: 'JTA/XA can coordinate an XA-capable database and broker with two-phase commit, but it requires compatible drivers and a transaction coordinator while holding resources across both systems. A transactional outbox keeps the atomic boundary local: store the business change and event record together, then relay the event with retries and idempotency.',
     topic: 'spring-boot',
     subtopic: 'sb-transactions',
     difficulty: 'Advanced',
@@ -1004,7 +1006,7 @@ export const springBootQuestions: Question[] = [
   {
     id: 'sb-tx-q12',
     question: 'What\'s the practical difference between setting a transaction timeout via @Transactional(timeout = N) and relying on a downstream HTTP client\'s own timeout?',
-    shortAnswer: 'The @Transactional timeout is enforced by the transaction manager and bounds the entire transaction\'s lifetime regardless of which step inside it is slow — a hung query, a slow downstream call, or just a long chain of operations. A downstream client timeout only bounds that one call; if some other step in the transaction stalls, the transaction (and its held database connection) can still stay open indefinitely. Setting a sensible transaction-level timeout is a defense against connection-pool exhaustion that individual per-call timeouts don\'t fully cover.',
+    shortAnswer: 'A transaction timeout bounds the whole transaction and its database resources. An HTTP timeout bounds only that network call, so both protect against different stalls.',
     topic: 'spring-boot',
     subtopic: 'sb-transactions',
     difficulty: 'Intermediate',

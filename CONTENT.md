@@ -72,6 +72,9 @@ and `src/content/subtopics.ts`, which aggregate whatever topic/subtopic files ex
 The core principle: **understand in 1–3 minutes → remember the key idea → see a small example →
 move on.** This app is a senior engineer's revision tool, not a blog. Every `ConceptCard`:
 
+- `importance` — `must-know`, `useful`, or `deep-dive`. Omit it for the `useful` default. Reserve
+  `must-know` for frequently tested foundations and production trade-offs; use `deep-dive` for
+  internals with narrower interview value.
 - `definition` — **one sentence.** What it is and why it exists. Not a paragraph.
 - `whyItMatters` — 1–3 short bullets, the practical reason, not a restatement of the definition.
   Optional — skip it if the definition already makes the point.
@@ -82,6 +85,8 @@ move on.** This app is a senior engineer's revision tool, not a blog. Every `Con
 - `interviewAngle` — **one** short Q/A teasing what a senior interviewer actually tests. Not a
   full Q&A entry — that belongs in the Q&A bank.
 - `related` — ids of a couple of other cards in the same subtopic worth reading alongside this one.
+- `comparison` — a structured table (`columns`, `rows`, optional `takeaway`) for genuine
+  side-by-side choices. Every row must match the column count; do not use tables for ordinary lists.
 
 Do **not**: write long paragraphs, make every card feel like an article, over-explain obvious
 things, use essay-style numbered headers (`01 · Topic`), repeat the same conclusion twice, or add
@@ -89,6 +94,11 @@ a diagram/example/interviewAngle to every single card just because the field exi
 need only a definition, remember list, and maybe an example. Clarity beats completeness beats
 cleverness. A reader should be able to sit down for 20–30 minutes and get through an entire
 subtopic's concept cards.
+
+As an editorial target, keep definitions near 25 words and normally below 35. Keep
+`shortAnswer` near 20–35 words and normally below 45; move mechanisms, exceptions, and extended
+trade-offs into `detailedAnswer` or `keyPoints`. Run `npm run audit:content` to list the largest
+outliers in high-priority subtopics. The audit is advisory so accuracy can justify an exception.
 
 **Grouping**: assign each card a `group` (e.g. "Foundations", "OOP Pillars", "Java Mechanics") that
 reflects a real learning progression — foundational mechanics first, core pillars next, language-

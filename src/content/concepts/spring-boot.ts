@@ -36,7 +36,8 @@ const sbIocDiConcepts: ConceptCard[] = [
     id: 'constructor-vs-field-injection',
     title: 'Constructor vs Setter vs Field Injection',
     group: 'Injection Types',
-    definition: 'Spring supports three injection styles — passing dependencies through a constructor, through setter methods, or directly onto annotated fields — and they differ in immutability, testability, and when a missing dependency is caught.',
+    importance: 'must-know',
+    definition: 'Spring can inject dependencies through constructors, setters, or fields; constructor injection is the safest default for required dependencies.',
     whyItMatters: [
       'Constructor injection allows `final` fields, guarantees a fully-initialized object the instant it exists, and fails fast at object-construction time if a required dependency is missing',
       'Setter injection suits genuinely optional dependencies that may be reconfigured after construction, at the cost of a window where the object exists partially wired',
@@ -47,6 +48,15 @@ const sbIocDiConcepts: ConceptCard[] = [
     ],
     readMinutes: 2,
     related: ['field-injection-critique'],
+    comparison: {
+      columns: ['Style', 'Required dependency', 'Immutable', 'Plain unit test', 'Recommendation'],
+      rows: [
+        ['Constructor', 'Yes', 'Yes', 'Easy', 'Default choice'],
+        ['Setter', 'Usually optional', 'No', 'Easy', 'Use for optional configuration'],
+        ['Field', 'Hidden until runtime', 'No', 'Awkward', 'Avoid in production code'],
+      ],
+      takeaway: 'Use constructor injection for required dependencies. Setter injection is reasonable for genuinely optional dependencies.',
+    },
   },
   {
     id: 'field-injection-critique',
@@ -1435,6 +1445,7 @@ public class OrderService {
   // Group: Propagation
   {
     id: 'propagation-required-vs-requires-new',
+    importance: 'must-know',
     title: 'REQUIRED vs REQUIRES_NEW',
     group: 'Propagation',
     definition: 'REQUIRED (the default) joins an existing transaction if one is active or starts one if not, so an inner method rolls back together with its caller; REQUIRES_NEW always suspends any existing transaction and starts a fully independent one that commits or rolls back on its own.',
@@ -1473,11 +1484,22 @@ public class AuditService {
     diagram: 'flowchart LR\n  outer[Outer transaction starts] --> call[Call inner method]\n  call --> suspend[Outer suspended]\n  suspend --> inner[Inner transaction starts and commits]\n  inner --> resume[Outer resumes]\n  resume --> outerEnd[Outer commits or rolls back]',
     related: ['propagation-nested', 'transactional-self-invocation-gotcha'],
     readMinutes: 2,
+    comparison: {
+      columns: ['Propagation', 'Existing transaction', 'Physical transaction', 'Typical use'],
+      rows: [
+        ['REQUIRED', 'Join it', 'Same', 'Normal business operation'],
+        ['REQUIRES_NEW', 'Suspend it', 'New', 'Independent audit or status write'],
+        ['NESTED', 'Create savepoint', 'Same', 'Partial rollback with JDBC support'],
+        ['MANDATORY', 'Require it', 'Same', 'Assert caller owns boundary'],
+      ],
+      takeaway: 'Use REQUIRED by default. REQUIRES_NEW creates an independent commit and consumes another connection; NESTED only creates a savepoint.',
+    },
   },
   {
     id: 'propagation-nested',
     title: 'NESTED Propagation',
     group: 'Propagation',
+    importance: 'deep-dive',
     definition: 'NESTED runs inside the same physical transaction as the caller but marks a savepoint, so a failure in the nested segment can roll back just to that savepoint without aborting the entire outer transaction.',
     whyItMatters: [
       'Unlike REQUIRES_NEW, it shares one connection and one commit/rollback unit — cheaper, but only works with resource managers/drivers that support JDBC savepoints (not all JTA transaction managers do)',

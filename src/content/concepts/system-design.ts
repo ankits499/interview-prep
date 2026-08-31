@@ -204,7 +204,8 @@ const sdCapConsistencyConcepts: ConceptCard[] = [
     id: 'cap-theorem-precise',
     title: 'CAP Theorem, Precisely Defined',
     group: 'CAP Theorem',
-    definition: 'In a distributed system, Consistency means every read sees the most recent write (or an error), Availability means every request to a non-failed node gets a response, and Partition tolerance means the system keeps operating despite dropped or delayed messages between nodes — you can only guarantee two of the three when a partition actually occurs.',
+    importance: 'must-know',
+    definition: 'During a network partition, a distributed system must choose between always returning a response and always returning the latest value.',
     whyItMatters: [
       'The common "pick 2 of 3" phrasing misleads people into designing around C-vs-A permanently, when the real constraint only bites during an actual network partition',
       'Partition tolerance is not optional for any system spanning more than one node over an unreliable network — so in practice CAP is really a CP-vs-AP choice',
@@ -212,6 +213,14 @@ const sdCapConsistencyConcepts: ConceptCard[] = [
     remember: ['Consistency here means linearizability, not the C in ACID', 'The theorem is about worst-case behavior during a partition, not normal operation'],
     diagram: 'flowchart LR\n  C[Consistency] --- A[Availability]\n  A --- P[Partition Tolerance]\n  P --- C\n  N[Network Partition Occurs] --> C\n  N --> A',
     readMinutes: 2,
+    comparison: {
+      columns: ['Partition choice', 'Behavior', 'Benefit', 'Cost'],
+      rows: [
+        ['Favor consistency', 'Reject or delay uncertain operations', 'No stale or conflicting result', 'Some requests fail'],
+        ['Favor availability', 'Serve from reachable replicas', 'Requests keep completing', 'Results may be stale'],
+      ],
+      takeaway: 'Partition tolerance is unavoidable across networked nodes. The real decision is which operations favor consistency or availability during the partition.',
+    },
   },
   {
     id: 'cap-partition-only-tradeoff',
@@ -234,6 +243,7 @@ const sdCapConsistencyConcepts: ConceptCard[] = [
     id: 'pacelc-extension',
     title: 'PACELC: The Tradeoff That Exists Even Without a Partition',
     group: 'CAP Theorem',
+    importance: 'deep-dive',
     definition: 'PACELC extends CAP by pointing out that even when there is no Partition, a system must still choose between Latency and Consistency (E-lse, L-atency, C-onsistency) — synchronously replicating a write to be consistent costs latency, and cutting that latency means serving reads that might be stale.',
     whyItMatters: [
       'CAP alone says nothing about the vastly more common case: normal, partition-free operation, where every system still trades latency against consistency on every write',
@@ -249,6 +259,7 @@ const sdCapConsistencyConcepts: ConceptCard[] = [
     id: 'strong-consistency',
     title: 'Strong Consistency',
     group: 'Consistency Models',
+    importance: 'must-know',
     definition: 'Every read reflects the most recent completed write, as if there were only a single copy of the data, regardless of which replica serves the request.',
     whyItMatters: [
       'Required whenever stale reads cause a correctness bug, not just a UX blemish — e.g. an account balance check before allowing a withdrawal',
@@ -257,6 +268,15 @@ const sdCapConsistencyConcepts: ConceptCard[] = [
     remember: ['Strong consistency is what most engineers mean colloquially by "consistency," but it is one point on a spectrum, not the only correct answer'],
     readMinutes: 1,
     related: ['linearizability-vs-serializability'],
+    comparison: {
+      columns: ['Model', 'What a read may return', 'Coordination', 'Good fit'],
+      rows: [
+        ['Strong', 'Latest completed write', 'High', 'Balances and uniqueness rules'],
+        ['Causal', 'Cause before effect', 'Medium', 'Comments and replies'],
+        ['Eventual', 'Possibly stale value', 'Low', 'Counters and feeds'],
+      ],
+      takeaway: 'Choose the weakest model that still preserves the business invariant; stronger consistency costs latency and availability.',
+    },
   },
   {
     id: 'eventual-consistency',
@@ -1035,6 +1055,7 @@ const sdSqlVsNosqlConcepts: ConceptCard[] = [
     id: 'nosql-scaling-story',
     title: 'The Actual Scaling Story: SQL vs NoSQL',
     group: 'Choosing the Right Store',
+    importance: 'must-know',
     definition: '"NoSQL scales better" oversimplifies a real but narrower fact: many NoSQL systems were designed from the start for horizontal, leaderless, multi-node writes, while relational databases historically scaled by scaling up a single writer, though modern distributed SQL systems have closed much of this gap.',
     whyItMatters: [
       'The honest tradeoff isn\'t "SQL doesn\'t scale" — it\'s that horizontal write scaling in a relational system requires giving up some of what makes it relational (cross-shard joins, cross-shard transactions), converging toward NoSQL-style tradeoffs anyway',
@@ -1043,6 +1064,17 @@ const sdSqlVsNosqlConcepts: ConceptCard[] = [
     remember: ['Newer distributed SQL systems (e.g. Spanner-style designs) exist precisely to blur this line — know this exists so you don\'t present the SQL/NoSQL scaling divide as absolute'],
     readMinutes: 2,
     related: ['when-relational-fits'],
+    comparison: {
+      columns: ['Concern', 'Relational', 'NoSQL'],
+      rows: [
+        ['Data model', 'Tables and relationships', 'Access-pattern specific'],
+        ['Transactions', 'Strong multi-row support', 'Often limited or scoped'],
+        ['Joins', 'Native and flexible', 'Usually denormalized'],
+        ['Horizontal writes', 'Possible but more complex', 'Common design goal'],
+        ['Best signal', 'Relationships and invariants', 'Scale or specialized access'],
+      ],
+      takeaway: 'Choose from access patterns and correctness needs—not the slogan that one database category always scales better.',
+    },
   },
   {
     id: 'polyglot-persistence',
@@ -1285,6 +1317,7 @@ const sdCachingConcepts: ConceptCard[] = [
     id: 'cache-aside-pattern',
     title: 'Cache-Aside (Lazy Loading)',
     group: 'Caching Patterns',
+    importance: 'must-know',
     definition: 'The application checks the cache first on a read; on a miss it loads from the database, populates the cache, and returns the value, while writes go to the database and the corresponding cache entry is invalidated (not updated).',
     whyItMatters: [
       'Only requested data ever gets cached, so memory isn\'t wasted on cold keys — but the first request after any write or eviction pays full database latency',
@@ -1296,6 +1329,15 @@ const sdCachingConcepts: ConceptCard[] = [
     diagram: 'flowchart LR\n  App[Application] -->|1 check| Cache[Cache]\n  Cache -->|2 miss| DB[Database]\n  DB -->|3 populate| Cache\n  Cache -->|4 return| App',
     interviewAngle: { q: 'Why invalidate on write instead of updating the cache directly?', a: 'Updating in place risks a stale concurrent read overwriting the fresh value; deleting forces the next read to reload from the source of truth.' },
     readMinutes: 2,
+    comparison: {
+      columns: ['Pattern', 'Write path', 'Read behavior', 'Main risk'],
+      rows: [
+        ['Cache-aside', 'Write DB, invalidate cache', 'Load on miss', 'Stale refill race'],
+        ['Write-through', 'Write cache and DB together', 'Usually a hit', 'Higher write latency'],
+        ['Write-behind', 'Write cache, flush later', 'Usually a hit', 'Lost acknowledged writes'],
+      ],
+      takeaway: 'Cache-aside is the usual default. Write-behind is appropriate only when its durability trade-off is explicit and controlled.',
+    },
   },
   {
     id: 'write-through-cache',
@@ -1489,14 +1531,25 @@ const sdMessagingConcepts: ConceptCard[] = [
     id: 'pubsub-vs-point-to-point',
     title: 'Pub/Sub vs Point-to-Point',
     group: 'Pub/Sub vs Point-to-Point',
+    importance: 'must-know',
     definition: 'Point-to-point delivers each message to exactly one of possibly many competing consumers; pub/sub broadcasts each message to every subscriber independently, each getting its own copy.',
     whyItMatters: [
       'Choosing wrong is a real design bug: point-to-point for a work queue that should fan out becomes a race where only one service reacts; pub/sub for a task queue means every consumer redundantly does the same work',
       'Pub/sub decouples the number and identity of interested parties from the producer — new subscribers can be added without touching the publisher',
     ],
     diagram: 'flowchart LR\n  Publisher --> Topic\n  Topic --> SubA[Subscriber A]\n  Topic --> SubB[Subscriber B]\n  Topic --> SubC[Subscriber C]',
+    remember: ['Queue: one worker handles each message', 'Pub/sub: every subscription receives its own copy'],
     readMinutes: 2,
     related: ['point-to-point-queue-model', 'competing-consumers-pattern'],
+    comparison: {
+      columns: ['Model', 'Who receives a message', 'Use case', 'Common example'],
+      rows: [
+        ['Point-to-point', 'One competing consumer', 'Distribute jobs', 'SQS queue'],
+        ['Pub/sub', 'Every subscription', 'Broadcast an event', 'SNS topic'],
+        ['Consumer groups', 'One consumer per group', 'Broadcast plus load sharing', 'Kafka topic'],
+      ],
+      takeaway: 'Choose from delivery intent: do the work once, or notify every independently interested consumer?',
+    },
   },
   {
     id: 'topic-vs-queue-terminology',
@@ -1528,6 +1581,7 @@ const sdMessagingConcepts: ConceptCard[] = [
     id: 'delivery-at-least-once',
     title: 'At-Least-Once Delivery',
     group: 'Delivery Guarantees',
+    importance: 'must-know',
     definition: 'The system redelivers a message until it receives a positive acknowledgment, guaranteeing every message is processed at least once but allowing duplicates if the ack is lost or delayed.',
     whyItMatters: [
       'The overwhelmingly common default for real messaging systems because it never silently loses data — the cost is pushed onto the consumer, which must tolerate duplicates',
@@ -1540,11 +1594,21 @@ const sdMessagingConcepts: ConceptCard[] = [
       a: 'That converts the guarantee to at-most-once — if the consumer crashes mid-processing after acking, the message is lost forever, not just duplicated.',
     },
     related: ['idempotent-consumers', 'ack-nack-visibility-timeout'],
+    comparison: {
+      columns: ['Guarantee', 'Loss possible', 'Duplicates possible', 'Consumer requirement'],
+      rows: [
+        ['At-most-once', 'Yes', 'No', 'Accept occasional loss'],
+        ['At-least-once', 'No after acceptance', 'Yes', 'Make processing idempotent'],
+        ['Exactly-once effect', 'No', 'No visible duplicate', 'Atomic deduplication with effect'],
+      ],
+      takeaway: 'At-least-once delivery with an idempotent consumer is the standard reliable production design.',
+    },
   },
   {
     id: 'delivery-exactly-once-myth',
     title: 'Exactly-Once Is Mostly Marketing',
     group: 'Delivery Guarantees',
+    importance: 'useful',
     definition: 'True exactly-once delivery across independent systems is provably very hard (it requires distributed consensus on every hop), so what vendors call "exactly-once" is almost always at-least-once delivery plus deduplication or idempotent processing.',
     whyItMatters: [
       'A senior engineer should be able to explain the mechanism behind a vendor\'s exactly-once claim, not just cite the marketing term',
