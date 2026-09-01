@@ -69,6 +69,24 @@ export function TopicGrid() {
           </Link>
         );
       })}
+      <Link
+        to="/java-syntax"
+        className="group flex min-w-0 flex-col justify-between rounded-lg border border-border bg-surface p-3.5 transition-colors hover:border-accent sm:p-5"
+      >
+        <div className="min-w-0">
+          <h3 className="font-mono text-sm font-semibold text-ink">Java Syntax</h3>
+          <p className="mt-2 text-xs text-ink-muted sm:text-sm">
+            Coding-round syntax, collections, algorithm templates, concurrency, and practical Java.
+          </p>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 font-mono text-[10px] text-ink-muted sm:mt-4 sm:text-xs">
+          <span>11 sections · 20 snippets</span>
+          <ArrowRight
+            size={14}
+            className="shrink-0 text-ink-muted transition-transform group-hover:translate-x-0.5 group-hover:text-accent"
+          />
+        </div>
+      </Link>
     </div>
   );
 }

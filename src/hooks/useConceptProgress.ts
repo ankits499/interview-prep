@@ -4,12 +4,12 @@ import { databaseReady, db } from '../lib/db'
 
 export function useConceptProgress() {
   const records = useLiveQuery(() => db.conceptProgress.toArray(), [], [])
-  const map = useMemo<Record<string, true>>(
-    () => Object.fromEntries(records.map(({ conceptId }) => [conceptId, true])),
+  const reviewedIds = useMemo(
+    () => new Set(records.map(({ conceptId }) => conceptId)),
     [records],
   )
 
-  const isReviewed = useCallback((id: string) => Boolean(map[id]), [map])
+  const isReviewed = useCallback((id: string) => reviewedIds.has(id), [reviewedIds])
 
   const setReviewed = useCallback(async (conceptId: string, reviewed: boolean) => {
     await databaseReady
@@ -20,5 +20,5 @@ export function useConceptProgress() {
     }
   }, [])
 
-  return { reviewedMap: map, isReviewed, setReviewed }
+  return { reviewedIds, isReviewed, setReviewed }
 }

@@ -7,6 +7,7 @@ import { QuestionPage } from './pages/QuestionPage'
 import { SearchPage } from './pages/SearchPage'
 import { ReviewPage } from './pages/ReviewPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { JavaSyntaxPage } from './pages/JavaSyntaxPage'
 
 export const router = createHashRouter([
   {
@@ -18,6 +19,7 @@ export const router = createHashRouter([
       { path: '/topic/:topicId/question/:questionId', element: <QuestionPage /> },
       { path: '/search', element: <SearchPage /> },
       { path: '/review', element: <ReviewPage /> },
+      { path: '/java-syntax', element: <JavaSyntaxPage /> },
       { path: '/settings', element: <SettingsPage /> },
     ],
   },
